@@ -70,7 +70,7 @@ async fn main() {
 
                 debug!("Request for {authority:?}");
 
-                let Some(tunnel) = tunnels.read().await.get(&authority).cloned() else {
+                let Some(tunnel) = tunnels.get_tunnel(&authority).await else {
                     let mut resp = Response::new(full(format!("Unknown tunnel: {authority}")));
                     *resp.status_mut() = StatusCode::NOT_FOUND;
 

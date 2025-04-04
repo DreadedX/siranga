@@ -11,10 +11,7 @@ use tokio::{
 };
 use tracing::{debug, error};
 
-use crate::{
-    animals::get_animal_name,
-    tunnel::{self, Tunnel, Tunnels},
-};
+use crate::tunnel::{Tunnel, Tunnels};
 
 pub struct Handler {
     tx: UnboundedSender<Vec<u8>>,
@@ -27,26 +24,6 @@ pub struct Handler {
 impl Handler {
     fn send(&self, data: &str) {
         let _ = self.tx.send(data.as_bytes().to_vec());
-    }
-
-    async fn full_address(&self, address: &str) -> Option<String> {
-        let all_tunnels = self.all_tunnels.read().await;
-
-        let address = if address == "localhost" {
-            loop {
-                let address = get_animal_name();
-                if !all_tunnels.contains_key(address) {
-                    break address;
-                }
-            }
-        } else {
-            if all_tunnels.contains_key(address) {
-                return None;
-            }
-            address
-        };
-
-        Some(format!("{address}.tunnel.huizinga.dev"))
     }
 }
 
@@ -126,18 +103,13 @@ impl russh::server::Handler for Handler {
     ) -> Result<bool, Self::Error> {
         debug!("{address}:{port}");
 
-        let Some(full_address) = self.full_address(address).await else {
+        let tunnel = Tunnel::new(session.handle(), address, *port);
+        let Some(address) = self.all_tunnels.add_tunnel(address, tunnel).await else {
             self.send(&format!("{port} => FAILED ({address} already in use)\r\n"));
             return Ok(false);
         };
-
-        self.tunnels.insert(full_address.clone());
-        self.all_tunnels.write().await.insert(
-            full_address.clone(),
-            Tunnel::new(session.handle(), address, *port),
-        );
-
-        self.send(&format!("{port} => https://{full_address}\r\n"));
+        self.send(&format!("{port} => https://{address}\r\n"));
+        self.tunnels.insert(address);
 
         Ok(true)
     }
@@ -146,13 +118,10 @@ impl russh::server::Handler for Handler {
 impl Drop for Handler {
     fn drop(&mut self) {
         let tunnels = self.tunnels.clone();
-        let all_tunnels = self.all_tunnels.clone();
+        let mut all_tunnels = self.all_tunnels.clone();
 
         tokio::spawn(async move {
-            let mut all_tunnels = all_tunnels.write().await;
-            for tunnel in tunnels {
-                all_tunnels.remove(&tunnel);
-            }
+            all_tunnels.remove_tunnels(tunnels.clone()).await;
 
             debug!("{all_tunnels:?}");
         });
@@ -166,7 +135,7 @@ pub struct Server {
 impl Server {
     pub fn new() -> Self {
         Server {
-            tunnels: tunnel::new(),
+            tunnels: Tunnels::new(),
         }
     }
 
