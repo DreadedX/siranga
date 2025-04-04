@@ -196,18 +196,23 @@ impl russh::server::Server for Server {
     }
 }
 
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
-    Full::new(chunk.into())
-        .map_err(|never| match never {})
-        .boxed()
-}
-
 impl Service<Request<Incoming>> for Tunnels {
     type Response = Response<BoxBody<Bytes, hyper::Error>>;
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
+        fn response(
+            status_code: StatusCode,
+            body: impl Into<String>,
+        ) -> Response<BoxBody<Bytes, hyper::Error>> {
+            Response::builder()
+                .status(status_code)
+                .body(Full::new(Bytes::from(body.into())))
+                .unwrap()
+                .map(|b| b.map_err(|never| match never {}).boxed())
+        }
+
         trace!(?req);
 
         let Some(authority) = req
@@ -221,8 +226,7 @@ impl Service<Request<Incoming>> for Tunnels {
                     .map(|h| h.to_str().unwrap().to_owned())
             })
         else {
-            let mut resp = Response::new(full("Missing authority or host header"));
-            *resp.status_mut() = StatusCode::BAD_REQUEST;
+            let resp = response(StatusCode::BAD_REQUEST, "Missing authority or host header");
 
             return Box::pin(async { Ok(resp) });
         };
@@ -232,8 +236,7 @@ impl Service<Request<Incoming>> for Tunnels {
         let tunnels = self.clone();
         Box::pin(async move {
             let Some(tunnel) = tunnels.get_tunnel(&authority).await else {
-                let mut resp = Response::new(full(format!("Unknown tunnel: {authority}")));
-                *resp.status_mut() = StatusCode::NOT_FOUND;
+                let resp = response(StatusCode::NOT_FOUND, "Unknown tunnel");
 
                 return Ok::<_, hyper::Error>(resp);
             };
@@ -242,9 +245,8 @@ impl Service<Request<Incoming>> for Tunnels {
             let channel = match tunnel.open_tunnel().await {
                 Ok(channel) => channel,
                 Err(err) => {
-                    warn!("Failed to tunnel: {err}");
-                    let mut resp = Response::new(full("Failed to open tunnel"));
-                    *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    warn!("Failed to open tunnel: {err}");
+                    let resp = response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to open tunnel");
 
                     return Ok::<_, hyper::Error>(resp);
                 }
