@@ -22,8 +22,12 @@ pub struct Handler {
 }
 
 impl Handler {
-    fn send(&self, data: &str) {
-        let _ = self.tx.send(data.as_bytes().to_vec());
+    fn send(&self, data: impl AsRef<str>) {
+        let _ = self.tx.send(data.as_ref().as_bytes().to_vec());
+    }
+
+    fn sendln(&self, data: impl AsRef<str>) {
+        self.send(format!("{}\n\r", data.as_ref()));
     }
 }
 
@@ -104,13 +108,13 @@ impl russh::server::Handler for Handler {
 
         let tunnel = Tunnel::new(session.handle(), address, *port);
         let Some(address) = self.all_tunnels.add_tunnel(address, tunnel).await else {
-            self.send(&format!("FAILED: ({address} already in use)\r\n"));
+            self.sendln(format!("FAILED: ({address} already in use)"));
             return Ok(false);
         };
 
         // NOTE: The port we receive might not be the port that is getting forwarded from the
         // client, we could include it in the message we send
-        self.send(&format!("http://{address}\r\n"));
+        self.sendln(format!("http://{address}"));
         self.tunnels.insert(address);
 
         Ok(true)
