@@ -9,7 +9,7 @@ use tokio::{
     net::ToSocketAddrs,
     sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
-use tracing::{debug, error};
+use tracing::{debug, trace, warn};
 
 use crate::tunnel::{Tunnel, Tunnels};
 
@@ -35,26 +35,24 @@ impl russh::server::Handler for Handler {
         channel: russh::Channel<Msg>,
         _session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        debug!("channel_open_session");
+        trace!("channel_open_session");
 
         let Some(mut rx) = self.rx.take() else {
             return Err(russh::Error::Inconsistent);
         };
 
         tokio::spawn(async move {
-            debug!("Waiting for message to send to client...");
             loop {
-                let message = rx.recv().await;
-                debug!("Message!");
+                let Some(message) = rx.recv().await else {
+                    break;
+                };
 
-                let Some(message) = message else { break };
+                trace!("Sending message to client");
 
                 if channel.data(message.as_ref()).await.is_err() {
                     break;
                 }
             }
-
-            debug!("Ending receive task");
         });
 
         Ok(true)
@@ -77,6 +75,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
+        // TODO: Graceful shutdown
         if data == [3] {
             return Err(russh::Error::Disconnect);
         }
@@ -90,7 +89,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        debug!("exec_request data {data:?}");
+        trace!(data, "exec_request");
 
         Ok(())
     }
@@ -101,7 +100,7 @@ impl russh::server::Handler for Handler {
         port: &mut u32,
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        debug!("{address}:{port}");
+        trace!(address, port, "tcpip_forward");
 
         let tunnel = Tunnel::new(session.handle(), address, *port);
         let Some(address) = self.all_tunnels.add_tunnel(address, tunnel).await else {
@@ -125,8 +124,6 @@ impl Drop for Handler {
 
         tokio::spawn(async move {
             all_tunnels.remove_tunnels(tunnels.clone()).await;
-
-            debug!("{all_tunnels:?}");
         });
     }
 }
@@ -149,7 +146,7 @@ impl Server {
     pub fn run(
         &mut self,
         key: PrivateKey,
-        addr: impl ToSocketAddrs + Send,
+        addr: impl ToSocketAddrs + Send + std::fmt::Debug,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         let config = russh::server::Config {
             inactivity_timeout: Some(Duration::from_secs(3600)),
@@ -162,6 +159,8 @@ impl Server {
             ..Default::default()
         };
         let config = Arc::new(config);
+
+        debug!(?addr, "Running ssh");
 
         async move { self.run_on_address(config, addr).await }
     }
@@ -182,6 +181,6 @@ impl russh::server::Server for Server {
     }
 
     fn handle_session_error(&mut self, error: <Self::Handler as russh::server::Handler>::Error) {
-        error!("Session error: {error:#?}");
+        warn!("Session error: {error:#?}");
     }
 }

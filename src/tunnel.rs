@@ -37,6 +37,7 @@ impl Tunnel {
     }
 
     pub async fn open_tunnel(&self) -> Result<Channel<Msg>, russh::Error> {
+        trace!(tunnel = self.address, "Opening tunnel");
         self.handle
             .channel_open_forwarded_tcpip(&self.address, self.port, &self.address, self.port)
             .await
@@ -76,6 +77,7 @@ impl Tunnels {
 
         let address = format!("{address}.{}", self.domain);
 
+        trace!(tunnel = address, "Adding tunnel");
         all_tunnels.insert(address.clone(), tunnel);
 
         Some(address)
@@ -84,12 +86,9 @@ impl Tunnels {
     pub async fn remove_tunnels(&mut self, tunnels: HashSet<String>) {
         let mut all_tunnels = self.tunnels.write().await;
         for tunnel in tunnels {
+            trace!(tunnel, "Removing tunnel");
             all_tunnels.remove(&tunnel);
         }
-    }
-
-    pub async fn get_tunnel(&self, address: &str) -> Option<Tunnel> {
-        self.tunnels.read().await.get(address).cloned()
     }
 }
 
@@ -128,24 +127,25 @@ impl Service<Request<Incoming>> for Tunnels {
             return Box::pin(async { Ok(resp) });
         };
 
-        debug!("Request for {authority:?}");
+        debug!(tunnel = authority, "Request");
 
-        let tunnels = self.clone();
+        let tunnels = self.tunnels.clone();
         Box::pin(async move {
-            let Some(tunnel) = tunnels.get_tunnel(&authority).await else {
+            let tunnels = tunnels.read().await;
+            let Some(tunnel) = tunnels.get(&authority) else {
+                debug!(tunnel = authority, "Unknown tunnel");
                 let resp = response(StatusCode::NOT_FOUND, "Unknown tunnel");
 
-                return Ok::<_, hyper::Error>(resp);
+                return Ok(resp);
             };
 
-            debug!("Opening channel");
             let channel = match tunnel.open_tunnel().await {
                 Ok(channel) => channel,
                 Err(err) => {
-                    warn!("Failed to open tunnel: {err}");
+                    warn!(tunnel = authority, "Failed to open tunnel: {err}");
                     let resp = response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to open tunnel");
 
-                    return Ok::<_, hyper::Error>(resp);
+                    return Ok(resp);
                 }
             };
             let io = TokioIo::new(channel.into_stream());
@@ -158,7 +158,7 @@ impl Service<Request<Incoming>> for Tunnels {
 
             tokio::spawn(async move {
                 if let Err(err) = conn.await {
-                    warn!("Connection failed: {err}");
+                    warn!(runnel = authority, "Connection failed: {err}");
                 }
             });
 

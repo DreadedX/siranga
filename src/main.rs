@@ -5,7 +5,7 @@ use hyper::server::conn::http1::{self};
 use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
 use tokio::net::TcpListener;
-use tracing::warn;
+use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use tunnel_rs::ssh::Server;
 
@@ -30,12 +30,16 @@ async fn main() {
     let domain = std::env::var("TUNNEL_DOMAIN").unwrap_or_else(|_| format!("localhost:{port}"));
 
     let mut ssh = Server::new(domain);
-
     let tunnels = ssh.tunnels();
-    tokio::spawn(async move { ssh.run(key, ("0.0.0.0", 2222)).await });
+    let addr = SocketAddr::from(([0, 0, 0, 0], 2222));
+    tokio::spawn(async move { ssh.run(key, addr).await });
+    info!("SSH is available on {addr}");
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await.unwrap();
+    info!("HTTP is available on {addr}");
+
+    // TODO: Graceful shutdown
     loop {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
