@@ -1,5 +1,6 @@
 use std::{net::SocketAddr, path::Path};
 
+use dotenvy::dotenv;
 use hyper::server::conn::http1::{self};
 use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
@@ -10,6 +11,8 @@ use tunnel_rs::ssh::Server;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+
     let env_filter = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
         .expect("Fallback should be valid");
