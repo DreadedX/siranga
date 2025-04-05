@@ -44,15 +44,21 @@ impl Tunnel {
 }
 
 #[derive(Debug, Clone)]
-pub struct Tunnels(Arc<RwLock<HashMap<String, Tunnel>>>);
+pub struct Tunnels {
+    tunnels: Arc<RwLock<HashMap<String, Tunnel>>>,
+    domain: String,
+}
 
 impl Tunnels {
-    pub fn new() -> Self {
-        Self(Arc::new(RwLock::new(HashMap::new())))
+    pub fn new(domain: impl Into<String>) -> Self {
+        Self {
+            tunnels: Arc::new(RwLock::new(HashMap::new())),
+            domain: domain.into(),
+        }
     }
 
     pub async fn add_tunnel(&mut self, address: &str, tunnel: Tunnel) -> Option<String> {
-        let mut all_tunnels = self.0.write().await;
+        let mut all_tunnels = self.tunnels.write().await;
 
         let address = if address == "localhost" {
             loop {
@@ -68,7 +74,7 @@ impl Tunnels {
             address
         };
 
-        let address = format!("{address}.tunnel.huizinga.dev");
+        let address = format!("{address}.{}", self.domain);
 
         all_tunnels.insert(address.clone(), tunnel);
 
@@ -76,20 +82,14 @@ impl Tunnels {
     }
 
     pub async fn remove_tunnels(&mut self, tunnels: HashSet<String>) {
-        let mut all_tunnels = self.0.write().await;
+        let mut all_tunnels = self.tunnels.write().await;
         for tunnel in tunnels {
             all_tunnels.remove(&tunnel);
         }
     }
 
     pub async fn get_tunnel(&self, address: &str) -> Option<Tunnel> {
-        self.0.read().await.get(address).cloned()
-    }
-}
-
-impl Default for Tunnels {
-    fn default() -> Self {
-        Self::new()
+        self.tunnels.read().await.get(address).cloned()
     }
 }
 

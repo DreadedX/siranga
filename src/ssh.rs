@@ -105,10 +105,13 @@ impl russh::server::Handler for Handler {
 
         let tunnel = Tunnel::new(session.handle(), address, *port);
         let Some(address) = self.all_tunnels.add_tunnel(address, tunnel).await else {
-            self.send(&format!("{port} => FAILED ({address} already in use)\r\n"));
+            self.send(&format!("FAILED: ({address} already in use)\r\n"));
             return Ok(false);
         };
-        self.send(&format!("{port} => https://{address}\r\n"));
+
+        // NOTE: The port we receive might not be the port that is getting forwarded from the
+        // client, we could include it in the message we send
+        self.send(&format!("http://{address}\r\n"));
         self.tunnels.insert(address);
 
         Ok(true)
@@ -133,9 +136,9 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new() -> Self {
+    pub fn new(domain: impl Into<String>) -> Self {
         Server {
-            tunnels: Tunnels::new(),
+            tunnels: Tunnels::new(domain),
         }
     }
 
@@ -161,12 +164,6 @@ impl Server {
         let config = Arc::new(config);
 
         async move { self.run_on_address(config, addr).await }
-    }
-}
-
-impl Default for Server {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

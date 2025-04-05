@@ -23,11 +23,15 @@ async fn main() {
         russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519).unwrap()
     };
 
-    let mut ssh = Server::new();
+    let port = 3000;
+    let domain = std::env::var("TUNNEL_DOMAIN").unwrap_or_else(|_| format!("localhost:{port}"));
+
+    let mut ssh = Server::new(domain);
+
     let tunnels = ssh.tunnels();
     tokio::spawn(async move { ssh.run(key, ("0.0.0.0", 2222)).await });
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await.unwrap();
     loop {
         let (stream, _) = listener.accept().await.unwrap();
