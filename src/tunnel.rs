@@ -18,21 +18,40 @@ use russh::{
 };
 use tokio::sync::RwLock;
 
-use crate::animals::get_animal_name;
+use crate::{
+    animals::get_animal_name,
+    auth::{
+        AuthStatus::{Authenticated, Unauthenticated},
+        ForwardAuth,
+    },
+};
+
+#[derive(Debug, Clone)]
+pub enum TunnelAccess {
+    Private(String),
+    Public,
+}
 
 #[derive(Debug, Clone)]
 pub struct Tunnel {
     handle: Handle,
     address: String,
     port: u32,
+    access: TunnelAccess,
 }
 
 impl Tunnel {
-    pub fn new(handle: Handle, address: impl Into<String>, port: u32) -> Self {
+    pub fn new(
+        handle: Handle,
+        address: impl Into<String>,
+        port: u32,
+        access: TunnelAccess,
+    ) -> Self {
         Self {
             handle,
             address: address.into(),
             port,
+            access,
         }
     }
 
@@ -48,13 +67,15 @@ impl Tunnel {
 pub struct Tunnels {
     tunnels: Arc<RwLock<HashMap<String, Tunnel>>>,
     domain: String,
+    forward_auth: ForwardAuth,
 }
 
 impl Tunnels {
-    pub fn new(domain: impl Into<String>) -> Self {
+    pub fn new(domain: impl Into<String>, endpoint: impl Into<String>) -> Self {
         Self {
             tunnels: Arc::new(RwLock::new(HashMap::new())),
             domain: domain.into(),
+            forward_auth: ForwardAuth::new(endpoint),
         }
     }
 
@@ -89,6 +110,12 @@ impl Tunnels {
             trace!(tunnel, "Removing tunnel");
             all_tunnels.remove(&tunnel);
         }
+    }
+
+    pub async fn set_access(&mut self, tunnel: &str, access: TunnelAccess) {
+        if let Some(tunnel) = self.tunnels.write().await.get_mut(tunnel) {
+            tunnel.access = access;
+        };
     }
 }
 
@@ -129,15 +156,33 @@ impl Service<Request<Incoming>> for Tunnels {
 
         debug!(tunnel = authority, "Request");
 
-        let tunnels = self.tunnels.clone();
+        let s = self.clone();
         Box::pin(async move {
-            let tunnels = tunnels.read().await;
+            let tunnels = s.tunnels.read().await;
             let Some(tunnel) = tunnels.get(&authority) else {
                 debug!(tunnel = authority, "Unknown tunnel");
                 let resp = response(StatusCode::NOT_FOUND, "Unknown tunnel");
 
                 return Ok(resp);
             };
+
+            if let TunnelAccess::Private(owner) = &tunnel.access {
+                let user = match s.forward_auth.check_auth(req.headers()).await {
+                    Authenticated(user) => user,
+                    Unauthenticated(response) => return Ok(response),
+                };
+
+                trace!("Tunnel owned by {owner} is getting accessed by {user}");
+
+                if !user.eq(owner) {
+                    let resp = response(
+                        StatusCode::FORBIDDEN,
+                        "You do not have permission to access this tunnel",
+                    );
+
+                    return Ok(resp);
+                }
+            }
 
             let channel = match tunnel.open_tunnel().await {
                 Ok(channel) => channel,

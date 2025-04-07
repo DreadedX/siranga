@@ -12,7 +12,7 @@ use tokio::{
 };
 use tracing::{debug, trace, warn};
 
-use crate::tunnel::{Tunnel, Tunnels};
+use crate::tunnel::{Tunnel, TunnelAccess, Tunnels};
 
 pub struct Handler {
     tx: UnboundedSender<Vec<u8>>,
@@ -20,6 +20,8 @@ pub struct Handler {
 
     all_tunnels: Tunnels,
     tunnels: HashSet<String>,
+
+    access: Option<TunnelAccess>,
 }
 
 impl Handler {
@@ -30,12 +32,22 @@ impl Handler {
     fn sendln(&self, data: impl AsRef<str>) {
         self.send(format!("{}\n\r", data.as_ref()));
     }
+
+    async fn set_access(&mut self, access: TunnelAccess) {
+        self.access = Some(access.clone());
+
+        for tunnel in &self.tunnels {
+            self.all_tunnels.set_access(tunnel, access.clone()).await;
+        }
+    }
 }
 
 /// Quickly create http tunnels for development
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg(short, long)]
+    public: bool,
 }
 
 impl russh::server::Handler for Handler {
@@ -76,6 +88,8 @@ impl russh::server::Handler for Handler {
     ) -> Result<Auth, Self::Error> {
         debug!("Login from {user}");
 
+        self.set_access(TunnelAccess::Private(user.into())).await;
+
         // TODO: Get ssh keys associated with user from ldap
         Ok(Auth::Accept)
     }
@@ -108,6 +122,10 @@ impl russh::server::Handler for Handler {
         match Args::try_parse_from(cmd) {
             Ok(args) => {
                 debug!("{args:?}");
+                if args.public {
+                    trace!("Making tunnels public");
+                    self.set_access(TunnelAccess::Public).await;
+                }
             }
             Err(err) => {
                 self.send(format!("{err}"));
@@ -128,7 +146,11 @@ impl russh::server::Handler for Handler {
     ) -> Result<bool, Self::Error> {
         trace!(address, port, "tcpip_forward");
 
-        let tunnel = Tunnel::new(session.handle(), address, *port);
+        let Some(access) = self.access.clone() else {
+            return Err(russh::Error::Inconsistent);
+        };
+
+        let tunnel = Tunnel::new(session.handle(), address, *port, access);
         let Some(address) = self.all_tunnels.add_tunnel(address, tunnel).await else {
             self.sendln(format!("FAILED: ({address} already in use)"));
             return Ok(false);
@@ -159,10 +181,8 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(domain: impl Into<String>) -> Self {
-        Server {
-            tunnels: Tunnels::new(domain),
-        }
+    pub fn new(tunnels: Tunnels) -> Self {
+        Server { tunnels }
     }
 
     pub fn tunnels(&self) -> Tunnels {
@@ -203,6 +223,7 @@ impl russh::server::Server for Server {
             rx: Some(rx),
             all_tunnels: self.tunnels.clone(),
             tunnels: HashSet::new(),
+            access: None,
         }
     }
 
