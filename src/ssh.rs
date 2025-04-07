@@ -1,5 +1,6 @@
-use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashSet, iter::once, net::SocketAddr, sync::Arc, time::Duration};
 
+use clap::Parser;
 use russh::{
     ChannelId,
     keys::PrivateKey,
@@ -29,6 +30,12 @@ impl Handler {
     fn sendln(&self, data: impl AsRef<str>) {
         self.send(format!("{}\n\r", data.as_ref()));
     }
+}
+
+/// Quickly create http tunnels for development
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
 }
 
 impl russh::server::Handler for Handler {
@@ -89,13 +96,28 @@ impl russh::server::Handler for Handler {
 
     async fn exec_request(
         &mut self,
-        _channel: ChannelId,
+        channel: ChannelId,
         data: &[u8],
-        _session: &mut Session,
+        session: &mut Session,
     ) -> Result<(), Self::Error> {
-        trace!(data, "exec_request");
+        let cmd = String::from_utf8_lossy(data);
 
-        Ok(())
+        trace!(?cmd, "exec_request");
+
+        let cmd = once("<ssh>").chain(cmd.split_whitespace());
+        match Args::try_parse_from(cmd) {
+            Ok(args) => {
+                debug!("{args:?}");
+            }
+            Err(err) => {
+                self.send(format!("{err}"));
+                // TODO: This closes the whole thing before we can send the message
+                // Instead use the graceful shutdown once that is implemented
+                // session.channel_failure(channel)
+            }
+        };
+
+        session.channel_success(channel)
     }
 
     async fn tcpip_forward(
