@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authelia-acl
+  annotations:
+    config.huizinga.dev/fragment: authelia-acl
+data:
+  rules: |
+    - domain: "*.tunnel.huizinga.dev"
+      policy: one_factor
