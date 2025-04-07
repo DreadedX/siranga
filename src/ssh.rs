@@ -100,7 +100,6 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // TODO: Graceful shutdown
         if data == [3] {
             return Err(russh::Error::Disconnect);
         }
@@ -126,16 +125,22 @@ impl russh::server::Handler for Handler {
                     trace!("Making tunnels public");
                     self.set_access(TunnelAccess::Public).await;
                 }
+
+                session.channel_success(channel)
             }
             Err(err) => {
-                self.send(format!("{err}"));
-                // TODO: This closes the whole thing before we can send the message
-                // Instead use the graceful shutdown once that is implemented
-                // session.channel_failure(channel)
-            }
-        };
+                trace!("Sending error/help message and disconnecting");
+                session
+                    .disconnect(
+                        russh::Disconnect::ByApplication,
+                        &format!("\n\r{err}"),
+                        "EN",
+                    )
+                    .unwrap();
 
-        session.channel_success(channel)
+                session.channel_failure(channel)
+            }
+        }
     }
 
     async fn tcpip_forward(
