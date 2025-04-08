@@ -1,9 +1,33 @@
-use std::path::Path;
-
+use clap::Parser;
+use clio::Output;
+use color_eyre::eyre::Context;
 use rand::rngs::OsRng;
+use russh::keys::ssh_key::{LineEnding, sec1::der::Writer};
 
-fn main() {
-    let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519).unwrap();
-    key.write_openssh_file(Path::new("./key.pem"), russh::keys::ssh_key::LineEnding::LF)
-        .unwrap();
+/// Simple program to generate a new private key in the correct format
+#[derive(Debug, Parser)]
+#[clap(name = "generate_key")]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[clap(value_parser, default_value = "-")]
+    output: Output,
+}
+
+fn main() -> color_eyre::Result<()> {
+    let mut args = Args::parse();
+
+    color_eyre::install()?;
+
+    let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)
+        .expect("algorithm should be supported");
+
+    let key = key
+        .to_openssh(LineEnding::LF)
+        .expect("encodig should not fail");
+
+    args.output
+        .write(key.as_bytes())
+        .wrap_err_with(|| format!("failed to write ssh key to output: {}", args.output.path()))?;
+
+    Ok(())
 }
