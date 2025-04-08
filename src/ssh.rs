@@ -20,7 +20,7 @@ pub struct Handler {
     rx: Option<UnboundedReceiver<Vec<u8>>>,
 
     all_tunnels: Tunnels,
-    tunnels: IndexMap<String, Tunnel>,
+    tunnels: IndexMap<String, Option<Tunnel>>,
 
     access: Option<TunnelAccess>,
 }
@@ -38,7 +38,9 @@ impl Handler {
         self.access = Some(access.clone());
 
         for (_address, tunnel) in &self.tunnels {
-            tunnel.set_access(access.clone()).await;
+            if let Some(tunnel) = tunnel {
+                tunnel.set_access(access.clone()).await;
+            }
         }
     }
 }
@@ -78,6 +80,16 @@ impl russh::server::Handler for Handler {
                 }
             }
         });
+
+        // NOTE: I believe this happens as the final step when opening a session.
+        // At this point all the tunnels should be populated
+        for (address, tunnel) in &self.tunnels {
+            if tunnel.is_some() {
+                self.sendln(format!("http://{address}"));
+            } else {
+                self.sendln(format!("Failed to open {address}, address already in use"));
+            }
+        }
 
         Ok(true)
     }
@@ -158,14 +170,11 @@ impl russh::server::Handler for Handler {
 
         let tunnel = Tunnel::new(session.handle(), address, *port, access);
         let Some(address) = self.all_tunnels.add_tunnel(address, tunnel.clone()).await else {
-            self.sendln(format!("FAILED: ({address} already in use)"));
+            self.tunnels.insert(address.into(), None);
             return Ok(false);
         };
 
-        // NOTE: The port we receive might not be the port that is getting forwarded from the
-        // client, we could include it in the message we send
-        self.sendln(format!("http://{address}"));
-        self.tunnels.insert(address, tunnel);
+        self.tunnels.insert(address, Some(tunnel));
 
         Ok(true)
     }

@@ -32,30 +32,25 @@ pub enum TunnelAccess {
 #[derive(Debug, Clone)]
 pub struct Tunnel {
     handle: Handle,
-    address: String,
+    name: String,
     port: u32,
     access: Arc<RwLock<TunnelAccess>>,
 }
 
 impl Tunnel {
-    pub fn new(
-        handle: Handle,
-        address: impl Into<String>,
-        port: u32,
-        access: TunnelAccess,
-    ) -> Self {
+    pub fn new(handle: Handle, name: impl Into<String>, port: u32, access: TunnelAccess) -> Self {
         Self {
             handle,
-            address: address.into(),
+            name: name.into(),
             port,
             access: Arc::new(RwLock::new(access)),
         }
     }
 
     pub async fn open_tunnel(&self) -> Result<Channel<Msg>, russh::Error> {
-        trace!(tunnel = self.address, "Opening tunnel");
+        trace!(tunnel = self.name, "Opening tunnel");
         self.handle
-            .channel_open_forwarded_tcpip(&self.address, self.port, &self.address, self.port)
+            .channel_open_forwarded_tcpip(&self.name, self.port, &self.name, self.port)
             .await
     }
 
@@ -84,20 +79,23 @@ impl Tunnels {
         let mut all_tunnels = self.tunnels.write().await;
 
         let address = if address == "localhost" {
+            // NOTE: It is technically possible to become stuck in this loop.
+            // However, that really only becomes a concern if a (very) high
+            // number of tunnels is open at the same time.
             loop {
                 let address = get_animal_name();
-                if !all_tunnels.contains_key(address) {
+                let address = format!("{address}.{}", self.domain);
+                if !all_tunnels.contains_key(&address) {
                     break address;
                 }
             }
         } else {
-            if all_tunnels.contains_key(address) {
+            let address = format!("{address}.{}", self.domain);
+            if all_tunnels.contains_key(&address) {
                 return None;
             }
             address
         };
-
-        let address = format!("{address}.{}", self.domain);
 
         trace!(tunnel = address, "Adding tunnel");
         all_tunnels.insert(address.clone(), tunnel);
@@ -105,11 +103,13 @@ impl Tunnels {
         Some(address)
     }
 
-    pub async fn remove_tunnels(&mut self, tunnels: &IndexMap<String, Tunnel>) {
+    pub async fn remove_tunnels(&mut self, tunnels: &IndexMap<String, Option<Tunnel>>) {
         let mut all_tunnels = self.tunnels.write().await;
-        for (address, _tunnel) in tunnels {
-            trace!(address, "Removing tunnel");
-            all_tunnels.remove(address);
+        for (address, tunnel) in tunnels {
+            if tunnel.is_some() {
+                trace!(address, "Removing tunnel");
+                all_tunnels.remove(address);
+            }
         }
     }
 }
