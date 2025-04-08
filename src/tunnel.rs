@@ -5,11 +5,8 @@ use hyper::{
     service::Service,
 };
 use hyper_util::rt::TokioIo;
-use std::{
-    collections::{HashMap, HashSet},
-    pin::Pin,
-    sync::Arc,
-};
+use indexmap::IndexMap;
+use std::{collections::HashMap, ops::Deref, pin::Pin, sync::Arc};
 use tracing::{debug, trace, warn};
 
 use russh::{
@@ -37,7 +34,7 @@ pub struct Tunnel {
     handle: Handle,
     address: String,
     port: u32,
-    access: TunnelAccess,
+    access: Arc<RwLock<TunnelAccess>>,
 }
 
 impl Tunnel {
@@ -51,7 +48,7 @@ impl Tunnel {
             handle,
             address: address.into(),
             port,
-            access,
+            access: Arc::new(RwLock::new(access)),
         }
     }
 
@@ -60,6 +57,10 @@ impl Tunnel {
         self.handle
             .channel_open_forwarded_tcpip(&self.address, self.port, &self.address, self.port)
             .await
+    }
+
+    pub async fn set_access(&self, access: TunnelAccess) {
+        *self.access.write().await = access;
     }
 }
 
@@ -104,18 +105,12 @@ impl Tunnels {
         Some(address)
     }
 
-    pub async fn remove_tunnels(&mut self, tunnels: HashSet<String>) {
+    pub async fn remove_tunnels(&mut self, tunnels: &IndexMap<String, Tunnel>) {
         let mut all_tunnels = self.tunnels.write().await;
-        for tunnel in tunnels {
-            trace!(tunnel, "Removing tunnel");
-            all_tunnels.remove(&tunnel);
+        for (address, _tunnel) in tunnels {
+            trace!(address, "Removing tunnel");
+            all_tunnels.remove(address);
         }
-    }
-
-    pub async fn set_access(&mut self, tunnel: &str, access: TunnelAccess) {
-        if let Some(tunnel) = self.tunnels.write().await.get_mut(tunnel) {
-            tunnel.access = access;
-        };
     }
 }
 
@@ -166,7 +161,7 @@ impl Service<Request<Incoming>> for Tunnels {
                 return Ok(resp);
             };
 
-            if let TunnelAccess::Private(owner) = &tunnel.access {
+            if let TunnelAccess::Private(owner) = tunnel.access.read().await.deref() {
                 let user = match s.forward_auth.check_auth(req.headers()).await {
                     Authenticated(user) => user,
                     Unauthenticated(response) => return Ok(response),

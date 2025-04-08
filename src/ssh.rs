@@ -1,6 +1,7 @@
-use std::{collections::HashSet, iter::once, net::SocketAddr, sync::Arc, time::Duration};
+use std::{iter::once, net::SocketAddr, sync::Arc, time::Duration};
 
 use clap::Parser;
+use indexmap::IndexMap;
 use russh::{
     ChannelId,
     keys::PrivateKey,
@@ -19,7 +20,7 @@ pub struct Handler {
     rx: Option<UnboundedReceiver<Vec<u8>>>,
 
     all_tunnels: Tunnels,
-    tunnels: HashSet<String>,
+    tunnels: IndexMap<String, Tunnel>,
 
     access: Option<TunnelAccess>,
 }
@@ -36,8 +37,8 @@ impl Handler {
     async fn set_access(&mut self, access: TunnelAccess) {
         self.access = Some(access.clone());
 
-        for tunnel in &self.tunnels {
-            self.all_tunnels.set_access(tunnel, access.clone()).await;
+        for (_address, tunnel) in &self.tunnels {
+            tunnel.set_access(access.clone()).await;
         }
     }
 }
@@ -156,7 +157,7 @@ impl russh::server::Handler for Handler {
         };
 
         let tunnel = Tunnel::new(session.handle(), address, *port, access);
-        let Some(address) = self.all_tunnels.add_tunnel(address, tunnel).await else {
+        let Some(address) = self.all_tunnels.add_tunnel(address, tunnel.clone()).await else {
             self.sendln(format!("FAILED: ({address} already in use)"));
             return Ok(false);
         };
@@ -164,7 +165,7 @@ impl russh::server::Handler for Handler {
         // NOTE: The port we receive might not be the port that is getting forwarded from the
         // client, we could include it in the message we send
         self.sendln(format!("http://{address}"));
-        self.tunnels.insert(address);
+        self.tunnels.insert(address, tunnel);
 
         Ok(true)
     }
@@ -176,7 +177,7 @@ impl Drop for Handler {
         let mut all_tunnels = self.all_tunnels.clone();
 
         tokio::spawn(async move {
-            all_tunnels.remove_tunnels(tunnels.clone()).await;
+            all_tunnels.remove_tunnels(&tunnels).await;
         });
     }
 }
@@ -227,7 +228,7 @@ impl russh::server::Server for Server {
             tx,
             rx: Some(rx),
             all_tunnels: self.tunnels.clone(),
-            tunnels: HashSet::new(),
+            tunnels: IndexMap::new(),
             access: None,
         }
     }
