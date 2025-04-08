@@ -1,13 +1,16 @@
 use bytes::Bytes;
-use http_body_util::{BodyExt as _, Full, combinators::BoxBody};
+use http_body_util::{BodyExt, Empty, combinators::BoxBody};
 use hyper::{
-    Request, Response, StatusCode, body::Incoming, client::conn::http1::Builder, header::HOST,
+    Request, Response, StatusCode,
+    body::Incoming,
+    client::conn::http1::Builder,
+    header::{self, HOST},
     service::Service,
 };
 use hyper_util::rt::TokioIo;
 use indexmap::IndexMap;
 use std::{collections::HashMap, ops::Deref, pin::Pin, sync::Arc};
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use russh::{
     Channel,
@@ -17,10 +20,8 @@ use tokio::sync::RwLock;
 
 use crate::{
     animals::get_animal_name,
-    auth::{
-        AuthStatus::{Authenticated, Unauthenticated},
-        ForwardAuth,
-    },
+    auth::{AuthStatus, ForwardAuth},
+    helper::response,
 };
 
 #[derive(Debug, Clone)]
@@ -120,18 +121,7 @@ impl Service<Request<Incoming>> for Tunnels {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
-        fn response(
-            status_code: StatusCode,
-            body: impl Into<String>,
-        ) -> Response<BoxBody<Bytes, hyper::Error>> {
-            Response::builder()
-                .status(status_code)
-                .body(Full::new(Bytes::from(body.into())))
-                .unwrap()
-                .map(|b| b.map_err(|never| match never {}).boxed())
-        }
-
-        trace!(?req);
+        trace!("{:#?}", req);
 
         let Some(authority) = req
             .uri()
@@ -141,15 +131,18 @@ impl Service<Request<Incoming>> for Tunnels {
             .or_else(|| {
                 req.headers()
                     .get(HOST)
-                    .map(|h| h.to_str().unwrap().to_owned())
+                    .and_then(|h| h.to_str().ok().map(|s| s.to_owned()))
             })
         else {
-            let resp = response(StatusCode::BAD_REQUEST, "Missing authority or host header");
+            let resp = response(
+                StatusCode::BAD_REQUEST,
+                "Missing or invalid authority or host header",
+            );
 
             return Box::pin(async { Ok(resp) });
         };
 
-        debug!(tunnel = authority, "Request");
+        debug!(tunnel = authority, "Tunnel request");
 
         let s = self.clone();
         Box::pin(async move {
@@ -163,13 +156,43 @@ impl Service<Request<Incoming>> for Tunnels {
 
             if let TunnelAccess::Private(owner) = tunnel.access.read().await.deref() {
                 let user = match s.forward_auth.check_auth(req.headers()).await {
-                    Authenticated(user) => user,
-                    Unauthenticated(response) => return Ok(response),
+                    Ok(AuthStatus::Authenticated(user)) => user,
+                    Ok(AuthStatus::Unauthenticated(location)) => {
+                        let resp = Response::builder()
+                            .status(StatusCode::FOUND)
+                            .header(header::LOCATION, location)
+                            .body(
+                                Empty::new()
+                                    // NOTE: I have NO idea why this is able to convert from Innfallible to hyper::Error
+                                    .map_err(|never| match never {})
+                                    .boxed(),
+                            )
+                            .expect("configuration should be valid");
+
+                        return Ok(resp);
+                    }
+                    Ok(AuthStatus::Unauthorized) => {
+                        let resp = response(
+                            StatusCode::FORBIDDEN,
+                            "You do not have permission to access this tunnel",
+                        );
+
+                        return Ok(resp);
+                    }
+                    Err(err) => {
+                        error!("Unexpected error during authentication: {err}");
+                        let resp = response(
+                            StatusCode::FORBIDDEN,
+                            "Unexpected error during authentication",
+                        );
+
+                        return Ok(resp);
+                    }
                 };
 
-                trace!("Tunnel owned by {owner} is getting accessed by {user}");
+                trace!("Tunnel owned by {owner} is getting accessed by {user:?}");
 
-                if !user.eq(owner) {
+                if !user.is(owner) {
                     let resp = response(
                         StatusCode::FORBIDDEN,
                         "You do not have permission to access this tunnel",
@@ -202,7 +225,7 @@ impl Service<Request<Incoming>> for Tunnels {
                 }
             });
 
-            let resp = sender.send_request(req).await.unwrap();
+            let resp = sender.send_request(req).await?;
             Ok(resp.map(|b| b.boxed()))
         })
     }

@@ -18,12 +18,9 @@ fn main() -> color_eyre::Result<()> {
 
     color_eyre::install()?;
 
-    let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)
-        .expect("algorithm should be supported");
+    let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)?;
 
-    let key = key
-        .to_openssh(LineEnding::LF)
-        .expect("encodig should not fail");
+    let key = key.to_openssh(LineEnding::LF)?;
 
     args.output
         .write(key.as_bytes())

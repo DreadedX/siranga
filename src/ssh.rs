@@ -143,13 +143,11 @@ impl russh::server::Handler for Handler {
             }
             Err(err) => {
                 trace!("Sending error/help message and disconnecting");
-                session
-                    .disconnect(
-                        russh::Disconnect::ByApplication,
-                        &format!("\n\r{err}"),
-                        "EN",
-                    )
-                    .unwrap();
+                session.disconnect(
+                    russh::Disconnect::ByApplication,
+                    &format!("\n\r{err}"),
+                    "EN",
+                )?;
 
                 session.channel_failure(channel)
             }

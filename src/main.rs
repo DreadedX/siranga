@@ -1,29 +1,30 @@
 use std::{net::SocketAddr, path::Path};
 
+use color_eyre::eyre::Context;
 use dotenvy::dotenv;
 use hyper::server::conn::http1::{self};
 use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
 use tokio::net::TcpListener;
-use tracing::{info, warn};
+use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use tunnel_rs::{ssh::Server, tunnel::Tunnels};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
     dotenv().ok();
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("info"))
-        .expect("Fallback should be valid");
+    let env_filter = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("info"))?;
 
     let logger = tracing_subscriber::fmt::layer().compact();
     Registry::default().with(logger).with(env_filter).init();
 
     let key = if let Ok(path) = std::env::var("PRIVATE_KEY_FILE") {
-        russh::keys::PrivateKey::read_openssh_file(Path::new(&path)).unwrap()
+        russh::keys::PrivateKey::read_openssh_file(Path::new(&path))
+            .wrap_err_with(|| format!("failed to read ssh key: {path}"))?
     } else {
-        russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519).unwrap()
+        russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)?
     };
 
     let port = 3000;
@@ -38,12 +39,12 @@ async fn main() {
     info!("SSH is available on {addr}");
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = TcpListener::bind(addr).await.unwrap();
+    let listener = TcpListener::bind(addr).await?;
     info!("HTTP is available on {addr}");
 
     // TODO: Graceful shutdown
     loop {
-        let (stream, _) = listener.accept().await.unwrap();
+        let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
 
         let tunnels = tunnels.clone();
@@ -55,7 +56,7 @@ async fn main() {
                 .with_upgrades()
                 .await
             {
-                warn!("Failed to serve connection: {err:?}");
+                error!("Failed to serve connection: {err:?}");
             }
         });
     }

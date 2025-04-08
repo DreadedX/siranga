@@ -17,6 +17,7 @@ indexmap = "2.9.0"
 rand = "0.8.5"
 reqwest = { version = "0.12.15", features = ["rustls-tls"] }
 russh = "0.51.1"
+thiserror = "2.0.12"
 tokio = { version = "1.44.1", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
