@@ -167,8 +167,11 @@ impl Handler {
 #[command(version, about, long_about = None)]
 struct Args {
     /// Make all tunnels public by default instead of private
-    #[arg(short, long)]
+    #[arg(long, group = "access")]
     public: bool,
+
+    #[arg(long, group = "access")]
+    protected: bool,
 }
 
 impl russh::server::Handler for Handler {
@@ -242,6 +245,11 @@ impl russh::server::Handler for Handler {
                 if args.public {
                     trace!("Making tunnels public");
                     self.set_access_all(TunnelAccess::Public).await;
+                    self.redraw().await?;
+                }
+                if args.protected {
+                    trace!("Making tunnels protected");
+                    self.set_access_all(TunnelAccess::Protected).await;
                     self.redraw().await?;
                 }
             }
