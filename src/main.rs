@@ -8,7 +8,7 @@ use rand::rngs::OsRng;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use tunnel_rs::{ssh::Server, tunnel::Tunnels};
+use tunnel_rs::{Server, Tunnels};
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {

@@ -36,13 +36,19 @@ impl Default for Renderer {
 
 impl Renderer {
     // NOTE: This needs to be a separate function as the render functions can not be async
-    pub async fn update_table(&mut self, tunnels: &IndexMap<String, Option<Tunnel>>) {
+    pub async fn update(
+        &mut self,
+        tunnels: &IndexMap<String, Option<Tunnel>>,
+        index: Option<usize>,
+    ) {
         self.table_rows = futures::stream::iter(tunnels.iter())
             .then(tunnel::tui::to_row)
             .collect::<Vec<_>>()
             .await;
 
         self.update_widths();
+
+        self.table_state.select(index);
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
@@ -116,9 +122,5 @@ impl Renderer {
             .highlight_spacing(HighlightSpacing::Always);
 
         frame.render_stateful_widget(t, rect, &mut self.table_state);
-    }
-
-    pub fn select(&mut self, index: Option<usize>) {
-        self.table_state.select(index);
     }
 }

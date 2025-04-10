@@ -1,19 +1,18 @@
-use std::{io::Write, iter::once, net::SocketAddr, sync::Arc, time::Duration};
+use std::{io::Write, iter::once};
 
-use clap::Parser;
+use clap::Parser as _;
 use indexmap::IndexMap;
 use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect, prelude::CrosstermBackend};
 use russh::{
     ChannelId,
-    keys::PrivateKey,
-    server::{Auth, Msg, Server as _, Session},
+    server::{Auth, Msg, Session},
 };
-use tokio::net::ToSocketAddrs;
 use tracing::{debug, trace, warn};
 
 use crate::{
-    keys::Input,
-    terminal::TerminalHandle,
+    cli,
+    input::Input,
+    io::TerminalHandle,
     tui::Renderer,
     tunnel::{Tunnel, TunnelAccess, Tunnels},
 };
@@ -31,7 +30,7 @@ pub struct Handler {
 }
 
 impl Handler {
-    fn new(all_tunnels: Tunnels) -> Self {
+    pub fn new(all_tunnels: Tunnels) -> Self {
         Self {
             all_tunnels,
             tunnels: IndexMap::new(),
@@ -52,20 +51,19 @@ impl Handler {
     }
 
     async fn resize(&mut self, width: u32, height: u32) -> std::io::Result<()> {
-        let rect = Rect {
-            x: 0,
-            y: 0,
-            width: width as u16,
-            height: height as u16,
-        };
-
         if let Some(terminal) = &mut self.terminal {
-            terminal.resize(rect)?;
-        } else {
-            todo!()
-        }
+            let rect = Rect {
+                x: 0,
+                y: 0,
+                width: width as u16,
+                height: height as u16,
+            };
 
-        self.redraw().await?;
+            terminal.resize(rect)?;
+            self.redraw().await?;
+        } else {
+            warn!("Resize called without valid terminal");
+        }
 
         Ok(())
     }
@@ -81,13 +79,12 @@ impl Handler {
     async fn redraw(&mut self) -> std::io::Result<()> {
         if let Some(terminal) = &mut self.terminal {
             trace!("redraw");
-            self.renderer.update_table(&self.tunnels).await;
-            self.renderer.select(self.selected);
+            self.renderer.update(&self.tunnels, self.selected).await;
             terminal.draw(|frame| {
                 self.renderer.render(frame);
             })?;
         } else {
-            todo!()
+            warn!("Redraw called without valid terminal");
         }
 
         Ok(())
@@ -162,18 +159,6 @@ impl Handler {
     }
 }
 
-/// Quickly create http tunnels for development
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// Make all tunnels public by default instead of private
-    #[arg(long, group = "access")]
-    public: bool,
-
-    #[arg(long, group = "access")]
-    protected: bool,
-}
-
 impl russh::server::Handler for Handler {
     type Error = russh::Error;
 
@@ -239,15 +224,14 @@ impl russh::server::Handler for Handler {
         trace!(?cmd, "exec_request");
 
         let cmd = once("<ssh command> --").chain(cmd.split_whitespace());
-        match Args::try_parse_from(cmd) {
+        match cli::Args::try_parse_from(cmd) {
             Ok(args) => {
                 debug!("{args:?}");
-                if args.public {
+                if args.make_public() {
                     trace!("Making tunnels public");
                     self.set_access_all(TunnelAccess::Public).await;
                     self.redraw().await?;
-                }
-                if args.protected {
+                } else if args.make_protected() {
                     trace!("Making tunnels protected");
                     self.set_access_all(TunnelAccess::Protected).await;
                     self.redraw().await?;
@@ -344,54 +328,5 @@ impl Drop for Handler {
         tokio::spawn(async move {
             all_tunnels.remove_tunnels(&tunnels).await;
         });
-    }
-}
-
-pub struct Server {
-    tunnels: Tunnels,
-}
-
-impl Server {
-    pub fn new(tunnels: Tunnels) -> Self {
-        Server { tunnels }
-    }
-
-    pub fn tunnels(&self) -> Tunnels {
-        self.tunnels.clone()
-    }
-
-    pub fn run(
-        &mut self,
-        key: PrivateKey,
-        addr: impl ToSocketAddrs + Send + std::fmt::Debug,
-    ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        let config = russh::server::Config {
-            inactivity_timeout: Some(Duration::from_secs(3600)),
-            auth_rejection_time: Duration::from_secs(3),
-            auth_rejection_time_initial: Some(Duration::from_secs(0)),
-            keys: vec![key],
-            preferred: russh::Preferred {
-                ..Default::default()
-            },
-            nodelay: true,
-            ..Default::default()
-        };
-        let config = Arc::new(config);
-
-        debug!(?addr, "Running ssh");
-
-        async move { self.run_on_address(config, addr).await }
-    }
-}
-
-impl russh::server::Server for Server {
-    type Handler = Handler;
-
-    fn new_client(&mut self, _peer_addr: Option<SocketAddr>) -> Self::Handler {
-        Handler::new(self.tunnels.clone())
-    }
-
-    fn handle_session_error(&mut self, error: <Self::Handler as russh::server::Handler>::Error) {
-        warn!("Session error: {error:#?}");
     }
 }
