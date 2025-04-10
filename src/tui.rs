@@ -4,34 +4,19 @@ use futures::StreamExt;
 use indexmap::IndexMap;
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Rect},
+    layout::{Constraint, Flex, Layout, Rect},
     style::{Style, Stylize as _},
-    text::{Line, Span},
-    widgets::{Cell, HighlightSpacing, Row, Table, TableState},
+    text::{Line, Span, Text},
+    widgets::{Block, BorderType, Cell, HighlightSpacing, Paragraph, Row, Table, TableState},
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::tunnel::{self, Tunnel};
 
+#[derive(Default)]
 pub struct Renderer {
     table_state: TableState,
     table_rows: Vec<Vec<Span<'static>>>,
-    table_header: Vec<Span<'static>>,
-    table_widths: Vec<Constraint>,
-}
-
-impl Default for Renderer {
-    fn default() -> Self {
-        let mut renderer = Self {
-            table_state: Default::default(),
-            table_rows: Default::default(),
-            table_header: tunnel::tui::header(),
-            table_widths: Default::default(),
-        };
-
-        renderer.update_widths();
-
-        renderer
-    }
 }
 
 impl Renderer {
@@ -46,9 +31,55 @@ impl Renderer {
             .collect::<Vec<_>>()
             .await;
 
-        self.update_widths();
-
         self.table_state.select(index);
+    }
+
+    fn compute_footer_text<'a>(&self, rect: Rect) -> (u16, Paragraph<'a>) {
+        let width = rect.width as usize - 2;
+
+        let commands = if self.table_state.selected().is_some() {
+            vec![
+                "(q) quit",
+                "(↓/j) move down",
+                "(↑/k) move up",
+                "(esc) deselect",
+                "",
+                "(p) make private",
+                "(ctrl-p) make protected",
+                "(shift-p) make public",
+            ]
+        } else {
+            vec![
+                "(q) quit",
+                "(↓/j) select first",
+                "(↑/k) select last",
+                "",
+                "(p) make all private",
+                "(ctrl-p) make all protected",
+                "(shift-p) make all public",
+            ]
+        };
+
+        let mut text = Text::default();
+        let mut line = Line::default();
+        let sep = " | ";
+        for command in commands {
+            if !command.is_empty() && line.width() == 0 {
+                line.push_span(command);
+            } else if !command.is_empty() && line.width() + sep.width() + command.width() <= width {
+                line.push_span(sep);
+                line.push_span(command);
+            } else {
+                text.push_line(line);
+                line = Line::from(command);
+            }
+        }
+        text.push_line(line);
+
+        let height = text.lines.len() + 2;
+
+        let block = Block::bordered().border_type(BorderType::Plain);
+        (height as u16, Paragraph::new(text).centered().block(block))
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
@@ -58,8 +89,13 @@ impl Renderer {
             horizontal: 1,
             vertical: 1,
         });
+        let (footer_height, footer) = self.compute_footer_text(area);
 
-        self.render_table(frame, area);
+        let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(footer_height)]);
+        let chunks = layout.split(area);
+
+        self.render_table(frame, chunks[0]);
+        frame.render_widget(footer, chunks[1]);
     }
 
     pub fn render_title(&self, frame: &mut Frame, rect: Rect) {
@@ -73,11 +109,12 @@ impl Renderer {
         frame.render_widget(title, rect);
     }
 
-    fn update_widths(&mut self) {
-        self.table_widths = std::iter::once(&self.table_header)
+    fn compute_widths(&mut self) -> Vec<Constraint> {
+        let table_header = tunnel::tui::header();
+        std::iter::once(&table_header)
             .chain(&self.table_rows)
             .map(|row| row.iter().map(|cell| cell.width() as u16))
-            .fold(vec![0; self.table_header.len()], |acc, row| {
+            .fold(vec![0; table_header.len()], |acc, row| {
                 acc.into_iter()
                     .zip(row)
                     .map(|v| cmp::max(v.0, v.1))
@@ -85,7 +122,7 @@ impl Renderer {
             })
             .into_iter()
             .map(|c| Constraint::Length(c + 1))
-            .collect();
+            .collect()
     }
 
     pub fn render_table(&mut self, frame: &mut Frame<'_>, rect: Rect) {
@@ -102,8 +139,7 @@ impl Renderer {
                 .height(1)
         });
 
-        let header = self
-            .table_header
+        let header = tunnel::tui::header()
             .iter()
             .cloned()
             .map(Cell::from)
@@ -116,7 +152,7 @@ impl Renderer {
             .rows(rows)
             .flex(Flex::Start)
             .column_spacing(3)
-            .widths(&self.table_widths)
+            .widths(self.compute_widths())
             .row_highlight_style(highlight_style)
             .highlight_symbol(Line::from("> "))
             .highlight_spacing(HighlightSpacing::Always);
