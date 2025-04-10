@@ -97,8 +97,6 @@ impl Handler {
         if let Some(selected) = self.selected {
             if let Some((_, Some(tunnel))) = self.tunnels.get_index_mut(selected) {
                 tunnel.set_access(access).await;
-            } else {
-                warn!("Selection was invalid");
             }
         } else {
             self.set_access_all(access).await;
