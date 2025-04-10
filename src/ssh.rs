@@ -23,6 +23,7 @@ pub struct Handler {
     tunnels: IndexMap<String, Option<Tunnel>>,
 
     user: Option<String>,
+    pty_channel: Option<ChannelId>,
 
     terminal: Option<Terminal<CrosstermBackend<TerminalHandle>>>,
     renderer: Renderer,
@@ -35,6 +36,7 @@ impl Handler {
             all_tunnels,
             tunnels: IndexMap::new(),
             user: None,
+            pty_channel: None,
             terminal: None,
             renderer: Default::default(),
             selected: None,
@@ -203,15 +205,20 @@ impl russh::server::Handler for Handler {
 
     async fn data(
         &mut self,
-        _channel: ChannelId,
+        channel: ChannelId,
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let input: Input = data.into();
-        trace!(?input, "data");
+        // Make sure we only handle user input, and not other data send over ssh
+        if let Some(pty_channel) = self.pty_channel
+            && pty_channel == channel
+        {
+            let input: Input = data.into();
+            trace!(?input, "input");
 
-        if self.handle_input(input).await? {
-            self.redraw().await?;
+            if self.handle_input(input).await? {
+                self.redraw().await?;
+            }
         }
 
         Ok(())
@@ -308,9 +315,11 @@ impl russh::server::Handler for Handler {
         _modes: &[(russh::Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        trace!(col_width, row_height, "pty_request");
+        trace!(col_width, row_height, ?channel, "pty_request");
 
         self.resize(col_width, row_height).await?;
+
+        self.pty_channel = Some(channel);
 
         session.channel_success(channel)?;
 
