@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Rect},
-    style::{Color, Style, Stylize as _},
+    style::{Style, Stylize as _},
     text::{Line, Span},
     widgets::{Cell, HighlightSpacing, Row, Table, TableState},
 };
@@ -61,7 +61,8 @@ impl Renderer {
             "{} ({})",
             std::env!("CARGO_PKG_NAME"),
             std::env!("CARGO_PKG_VERSION")
-        );
+        )
+        .bold();
         let title = Line::from(title).centered();
         frame.render_widget(title, rect);
     }
@@ -82,7 +83,7 @@ impl Renderer {
     }
 
     pub fn render_table(&mut self, frame: &mut Frame<'_>, rect: Rect) {
-        let highlight_style = Style::default().bg(Color::Blue);
+        let highlight_style = Style::default().bold();
         let header_style = Style::default().bold().reversed();
         let row_style = Style::default();
 
@@ -115,5 +116,9 @@ impl Renderer {
             .highlight_spacing(HighlightSpacing::Always);
 
         frame.render_stateful_widget(t, rect, &mut self.table_state);
+    }
+
+    pub fn select(&mut self, index: Option<usize>) {
+        self.table_state.select(index);
     }
 }

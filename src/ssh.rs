@@ -12,6 +12,7 @@ use tokio::net::ToSocketAddrs;
 use tracing::{debug, trace, warn};
 
 use crate::{
+    keys::Input,
     terminal::TerminalHandle,
     tui::Renderer,
     tunnel::{Tunnel, TunnelAccess, Tunnels},
@@ -25,6 +26,7 @@ pub struct Handler {
 
     terminal: Option<Terminal<CrosstermBackend<TerminalHandle>>>,
     renderer: Renderer,
+    selected: Option<usize>,
 }
 
 impl Handler {
@@ -33,12 +35,13 @@ impl Handler {
             all_tunnels,
             tunnels: IndexMap::new(),
             user: None,
-            terminal: Default::default(),
+            terminal: None,
             renderer: Default::default(),
+            selected: None,
         }
     }
 
-    async fn set_access(&mut self, access: TunnelAccess) {
+    async fn set_access_all(&mut self, access: TunnelAccess) {
         for (_address, tunnel) in &self.tunnels {
             if let Some(tunnel) = tunnel {
                 tunnel.set_access(access.clone()).await;
@@ -46,7 +49,7 @@ impl Handler {
         }
     }
 
-    pub async fn resize(&mut self, width: u32, height: u32) -> std::io::Result<()> {
+    async fn resize(&mut self, width: u32, height: u32) -> std::io::Result<()> {
         let rect = Rect {
             x: 0,
             y: 0,
@@ -73,10 +76,11 @@ impl Handler {
         Ok(())
     }
 
-    pub async fn redraw(&mut self) -> std::io::Result<()> {
+    async fn redraw(&mut self) -> std::io::Result<()> {
         if let Some(terminal) = &mut self.terminal {
             trace!("redraw");
             self.renderer.update_table(&self.tunnels).await;
+            self.renderer.select(self.selected);
             terminal.draw(|frame| {
                 self.renderer.render(frame);
             })?;
@@ -87,11 +91,36 @@ impl Handler {
         Ok(())
     }
 
-    pub async fn handle_input(&mut self, input: char) -> std::io::Result<bool> {
+    async fn set_access_selection(&mut self, access: TunnelAccess) {
+        if let Some(selected) = self.selected {
+            if let Some((_, Some(tunnel))) = self.tunnels.get_index_mut(selected) {
+                tunnel.set_access(access).await;
+            } else {
+                warn!("Selection was invalid");
+            }
+        } else {
+            self.set_access_all(access).await;
+        }
+    }
+
+    async fn handle_input(&mut self, input: Input) -> std::io::Result<bool> {
         match input {
-            'q' => {
+            Input::Char('q') => {
                 self.close()?;
                 return Ok(false);
+            }
+            Input::Char('k') | Input::Up => self.previous_row(),
+            Input::Char('j') | Input::Down => self.next_row(),
+            Input::Esc => self.selected = None,
+            Input::Char('P') => {
+                self.set_access_selection(TunnelAccess::Public).await;
+            }
+            Input::Char('p') => {
+                if let Some(user) = self.user.clone() {
+                    self.set_access_selection(TunnelAccess::Private(user)).await;
+                } else {
+                    warn!("User not set");
+                }
             }
             _ => {
                 return Ok(false);
@@ -99,6 +128,34 @@ impl Handler {
         };
 
         Ok(true)
+    }
+
+    fn next_row(&mut self) {
+        let i = match self.selected {
+            Some(i) => {
+                if i < self.tunnels.len() - 1 {
+                    i + 1
+                } else {
+                    i
+                }
+            }
+            None => 0,
+        };
+        self.selected = Some(i);
+    }
+
+    fn previous_row(&mut self) {
+        let i = match self.selected {
+            Some(i) => {
+                if i > 0 {
+                    i - 1
+                } else {
+                    i
+                }
+            }
+            None => self.tunnels.len() - 1,
+        };
+        self.selected = Some(i);
     }
 }
 
@@ -150,13 +207,10 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let Some(input) = data.first().cloned() else {
-            return Ok(());
-        };
+        let input: Input = data.into();
+        trace!(?input, "data");
 
-        trace!(input, "data");
-
-        if self.handle_input(input as char).await? {
+        if self.handle_input(input).await? {
             self.redraw().await?;
         }
 
@@ -179,7 +233,7 @@ impl russh::server::Handler for Handler {
                 debug!("{args:?}");
                 if args.public {
                     trace!("Making tunnels public");
-                    self.set_access(TunnelAccess::Public).await;
+                    self.set_access_all(TunnelAccess::Public).await;
                     self.redraw().await?;
                 }
             }

@@ -60,6 +60,10 @@ impl Tunnel {
     pub async fn set_access(&self, access: TunnelAccess) {
         *self.access.write().await = access;
     }
+
+    pub async fn is_public(&self) -> bool {
+        matches!(*self.access.read().await, TunnelAccess::Public)
+    }
 }
 
 #[derive(Debug, Clone)]
