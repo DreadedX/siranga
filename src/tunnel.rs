@@ -29,6 +29,7 @@ pub mod tui;
 #[derive(Debug, Clone)]
 pub enum TunnelAccess {
     Private(String),
+    Protected,
     Public,
 }
 
@@ -160,7 +161,7 @@ impl Service<Request<Incoming>> for Tunnels {
                 return Ok(resp);
             };
 
-            if let TunnelAccess::Private(owner) = tunnel.access.read().await.deref() {
+            if !matches!(tunnel.access.read().await.deref(), TunnelAccess::Public) {
                 let user = match s.forward_auth.check_auth(req.headers()).await {
                     Ok(AuthStatus::Authenticated(user)) => user,
                     Ok(AuthStatus::Unauthenticated(location)) => {
@@ -196,15 +197,17 @@ impl Service<Request<Incoming>> for Tunnels {
                     }
                 };
 
-                trace!("Tunnel owned by {owner} is getting accessed by {user:?}");
+                trace!("Tunnel is getting accessed by {user:?}");
 
-                if !user.is(owner) {
-                    let resp = response(
-                        StatusCode::FORBIDDEN,
-                        "You do not have permission to access this tunnel",
-                    );
+                if let TunnelAccess::Private(owner) = tunnel.access.read().await.deref() {
+                    if !user.is(owner) {
+                        let resp = response(
+                            StatusCode::FORBIDDEN,
+                            "You do not have permission to access this tunnel",
+                        );
 
-                    return Ok(resp);
+                        return Ok(resp);
+                    }
                 }
             }
 

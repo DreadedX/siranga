@@ -13,6 +13,7 @@ pub async fn to_row((address, tunnel): (&String, &Option<Tunnel>)) -> Vec<Span<'
     let (access, port) = if let Some(tunnel) = tunnel {
         let access = match tunnel.access.read().await.deref() {
             TunnelAccess::Private(owner) => owner.clone().yellow(),
+            TunnelAccess::Protected => "PROTECTED".blue(),
             TunnelAccess::Public => "PUBLIC".green(),
         };
 

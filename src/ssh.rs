@@ -122,6 +122,9 @@ impl Handler {
                     warn!("User not set");
                 }
             }
+            Input::CtrlP => {
+                self.set_access_selection(TunnelAccess::Protected).await;
+            }
             _ => {
                 return Ok(false);
             }
