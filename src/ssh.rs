@@ -1,47 +1,104 @@
-use std::{iter::once, net::SocketAddr, sync::Arc, time::Duration};
+use std::{io::Write, iter::once, net::SocketAddr, sync::Arc, time::Duration};
 
 use clap::Parser;
 use indexmap::IndexMap;
+use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect, prelude::CrosstermBackend};
 use russh::{
     ChannelId,
     keys::PrivateKey,
     server::{Auth, Msg, Server as _, Session},
 };
-use tokio::{
-    net::ToSocketAddrs,
-    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-};
+use tokio::net::ToSocketAddrs;
 use tracing::{debug, trace, warn};
 
-use crate::tunnel::{Tunnel, TunnelAccess, Tunnels};
+use crate::{
+    terminal::TerminalHandle,
+    tui::Renderer,
+    tunnel::{Tunnel, TunnelAccess, Tunnels},
+};
 
 pub struct Handler {
-    tx: UnboundedSender<Vec<u8>>,
-    rx: Option<UnboundedReceiver<Vec<u8>>>,
-
     all_tunnels: Tunnels,
     tunnels: IndexMap<String, Option<Tunnel>>,
 
-    access: Option<TunnelAccess>,
+    user: Option<String>,
+
+    terminal: Option<Terminal<CrosstermBackend<TerminalHandle>>>,
+    renderer: Renderer,
 }
 
 impl Handler {
-    fn send(&self, data: impl AsRef<str>) {
-        let _ = self.tx.send(data.as_ref().as_bytes().to_vec());
-    }
-
-    fn sendln(&self, data: impl AsRef<str>) {
-        self.send(format!("{}\n\r", data.as_ref()));
+    fn new(all_tunnels: Tunnels) -> Self {
+        Self {
+            all_tunnels,
+            tunnels: IndexMap::new(),
+            user: None,
+            terminal: Default::default(),
+            renderer: Default::default(),
+        }
     }
 
     async fn set_access(&mut self, access: TunnelAccess) {
-        self.access = Some(access.clone());
-
         for (_address, tunnel) in &self.tunnels {
             if let Some(tunnel) = tunnel {
                 tunnel.set_access(access.clone()).await;
             }
         }
+    }
+
+    pub async fn resize(&mut self, width: u32, height: u32) -> std::io::Result<()> {
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: width as u16,
+            height: height as u16,
+        };
+
+        if let Some(terminal) = &mut self.terminal {
+            terminal.resize(rect)?;
+        } else {
+            todo!()
+        }
+
+        self.redraw().await?;
+
+        Ok(())
+    }
+
+    pub fn close(&mut self) -> std::io::Result<()> {
+        if let Some(terminal) = self.terminal.take() {
+            drop(terminal);
+        }
+
+        Ok(())
+    }
+
+    pub async fn redraw(&mut self) -> std::io::Result<()> {
+        if let Some(terminal) = &mut self.terminal {
+            trace!("redraw");
+            self.renderer.update_table(&self.tunnels).await;
+            terminal.draw(|frame| {
+                self.renderer.render(frame);
+            })?;
+        } else {
+            todo!()
+        }
+
+        Ok(())
+    }
+
+    pub async fn handle_input(&mut self, input: char) -> std::io::Result<bool> {
+        match input {
+            'q' => {
+                self.close()?;
+                return Ok(false);
+            }
+            _ => {
+                return Ok(false);
+            }
+        };
+
+        Ok(true)
     }
 }
 
@@ -49,6 +106,7 @@ impl Handler {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Make all tunnels public by default instead of private
     #[arg(short, long)]
     public: bool,
 }
@@ -59,37 +117,16 @@ impl russh::server::Handler for Handler {
     async fn channel_open_session(
         &mut self,
         channel: russh::Channel<Msg>,
-        _session: &mut Session,
+        session: &mut Session,
     ) -> Result<bool, Self::Error> {
         trace!("channel_open_session");
 
-        let Some(mut rx) = self.rx.take() else {
-            return Err(russh::Error::Inconsistent);
+        let terminal_handle = TerminalHandle::start(session.handle(), channel.id()).await?;
+        let backend = CrosstermBackend::new(terminal_handle);
+        let options = TerminalOptions {
+            viewport: Viewport::Fixed(Rect::default()),
         };
-
-        tokio::spawn(async move {
-            loop {
-                let Some(message) = rx.recv().await else {
-                    break;
-                };
-
-                trace!("Sending message to client");
-
-                if channel.data(message.as_ref()).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        // NOTE: I believe this happens as the final step when opening a session.
-        // At this point all the tunnels should be populated
-        for (address, tunnel) in &self.tunnels {
-            if tunnel.is_some() {
-                self.sendln(format!("http://{address}"));
-            } else {
-                self.sendln(format!("Failed to open {address}, address already in use"));
-            }
-        }
+        self.terminal = Some(Terminal::with_options(backend, options)?);
 
         Ok(true)
     }
@@ -101,7 +138,7 @@ impl russh::server::Handler for Handler {
     ) -> Result<Auth, Self::Error> {
         debug!("Login from {user}");
 
-        self.set_access(TunnelAccess::Private(user.into())).await;
+        self.user = Some(user.into());
 
         // TODO: Get ssh keys associated with user from ldap
         Ok(Auth::Accept)
@@ -113,8 +150,14 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if data == [3] {
-            return Err(russh::Error::Disconnect);
+        let Some(input) = data.first().cloned() else {
+            return Ok(());
+        };
+
+        trace!(input, "data");
+
+        if self.handle_input(input as char).await? {
+            self.redraw().await?;
         }
 
         Ok(())
@@ -130,28 +173,32 @@ impl russh::server::Handler for Handler {
 
         trace!(?cmd, "exec_request");
 
-        let cmd = once("<ssh>").chain(cmd.split_whitespace());
+        let cmd = once("<ssh command> --").chain(cmd.split_whitespace());
         match Args::try_parse_from(cmd) {
             Ok(args) => {
                 debug!("{args:?}");
                 if args.public {
                     trace!("Making tunnels public");
                     self.set_access(TunnelAccess::Public).await;
+                    self.redraw().await?;
                 }
-
-                session.channel_success(channel)
             }
             Err(err) => {
-                trace!("Sending error/help message and disconnecting");
-                session.disconnect(
-                    russh::Disconnect::ByApplication,
-                    &format!("\n\r{err}"),
-                    "EN",
-                )?;
+                trace!("Sending help message and disconnecting");
 
-                session.channel_failure(channel)
+                if let Some(terminal) = &mut self.terminal {
+                    let writer = terminal.backend_mut().writer_mut();
+
+                    writer.leave_alternate_screen()?;
+                    writer.write_all(err.to_string().replace('\n', "\n\r").as_bytes())?;
+                    writer.flush()?;
+                }
+
+                self.close()?;
             }
         }
+
+        session.channel_success(channel)
     }
 
     async fn tcpip_forward(
@@ -162,19 +209,58 @@ impl russh::server::Handler for Handler {
     ) -> Result<bool, Self::Error> {
         trace!(address, port, "tcpip_forward");
 
-        let Some(access) = self.access.clone() else {
+        let Some(user) = self.user.clone() else {
             return Err(russh::Error::Inconsistent);
         };
 
-        let tunnel = Tunnel::new(session.handle(), address, *port, access);
-        let Some(address) = self.all_tunnels.add_tunnel(address, tunnel.clone()).await else {
-            self.tunnels.insert(address.into(), None);
-            return Ok(false);
-        };
+        let tunnel = Tunnel::new(
+            session.handle(),
+            address,
+            *port,
+            TunnelAccess::Private(user),
+        );
+        let (success, address) = self.all_tunnels.add_tunnel(address, tunnel.clone()).await;
 
-        self.tunnels.insert(address, Some(tunnel));
+        let tunnel = if success { Some(tunnel) } else { None };
+        self.tunnels.insert(address, tunnel);
 
-        Ok(true)
+        Ok(success)
+    }
+
+    async fn window_change_request(
+        &mut self,
+        _channel: ChannelId,
+        col_width: u32,
+        row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        trace!(col_width, row_height, "window_change_request");
+
+        self.resize(col_width, row_height).await?;
+
+        Ok(())
+    }
+
+    async fn pty_request(
+        &mut self,
+        channel: ChannelId,
+        _term: &str,
+        col_width: u32,
+        row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        _modes: &[(russh::Pty, u32)],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        trace!(col_width, row_height, "pty_request");
+
+        self.resize(col_width, row_height).await?;
+
+        session.channel_success(channel)?;
+
+        Ok(())
     }
 }
 
@@ -215,6 +301,7 @@ impl Server {
             preferred: russh::Preferred {
                 ..Default::default()
             },
+            nodelay: true,
             ..Default::default()
         };
         let config = Arc::new(config);
@@ -229,15 +316,7 @@ impl russh::server::Server for Server {
     type Handler = Handler;
 
     fn new_client(&mut self, _peer_addr: Option<SocketAddr>) -> Self::Handler {
-        let (tx, rx) = unbounded_channel::<Vec<u8>>();
-
-        Handler {
-            tx,
-            rx: Some(rx),
-            all_tunnels: self.tunnels.clone(),
-            tunnels: IndexMap::new(),
-            access: None,
-        }
+        Handler::new(self.tunnels.clone())
     }
 
     fn handle_session_error(&mut self, error: <Self::Handler as russh::server::Handler>::Error) {

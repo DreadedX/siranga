@@ -4,4 +4,6 @@ pub mod animals;
 pub mod auth;
 pub mod helper;
 pub mod ssh;
+pub mod terminal;
+pub mod tui;
 pub mod tunnel;

@@ -24,6 +24,8 @@ use crate::{
     helper::response,
 };
 
+pub mod tui;
+
 #[derive(Debug, Clone)]
 pub enum TunnelAccess {
     Private(String),
@@ -76,7 +78,7 @@ impl Tunnels {
         }
     }
 
-    pub async fn add_tunnel(&mut self, address: &str, tunnel: Tunnel) -> Option<String> {
+    pub async fn add_tunnel(&mut self, address: &str, tunnel: Tunnel) -> (bool, String) {
         let mut all_tunnels = self.tunnels.write().await;
 
         let address = if address == "localhost" {
@@ -93,7 +95,7 @@ impl Tunnels {
         } else {
             let address = format!("{address}.{}", self.domain);
             if all_tunnels.contains_key(&address) {
-                return None;
+                return (false, address);
             }
             address
         };
@@ -101,7 +103,7 @@ impl Tunnels {
         trace!(tunnel = address, "Adding tunnel");
         all_tunnels.insert(address.clone(), tunnel);
 
-        Some(address)
+        (true, address)
     }
 
     pub async fn remove_tunnels(&mut self, tunnels: &IndexMap<String, Option<Tunnel>>) {
