@@ -1,7 +1,6 @@
 use std::cmp;
 
 use futures::StreamExt;
-use indexmap::IndexMap;
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
@@ -25,12 +24,8 @@ fn command<'c>(key: &'c str, text: &'c str) -> Vec<Span<'c>> {
 
 impl Renderer {
     // NOTE: This needs to be a separate function as the render functions can not be async
-    pub async fn update(
-        &mut self,
-        tunnels: &IndexMap<String, Option<Tunnel>>,
-        index: Option<usize>,
-    ) {
-        self.table_rows = futures::stream::iter(tunnels.iter())
+    pub async fn update(&mut self, tunnels: &[Tunnel], index: Option<usize>) {
+        self.table_rows = futures::stream::iter(tunnels)
             .then(tunnel::tui::to_row)
             .collect::<Vec<_>>()
             .await;

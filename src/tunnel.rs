@@ -8,8 +8,12 @@ use hyper::{
     service::Service,
 };
 use hyper_util::rt::TokioIo;
-use indexmap::IndexMap;
-use std::{collections::HashMap, ops::Deref, pin::Pin, sync::Arc};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    ops::Deref,
+    pin::Pin,
+    sync::Arc,
+};
 use tracing::{debug, error, trace, warn};
 
 use russh::{
@@ -37,20 +41,12 @@ pub enum TunnelAccess {
 pub struct Tunnel {
     handle: Handle,
     name: String,
+    domain: Option<String>,
     port: u32,
     access: Arc<RwLock<TunnelAccess>>,
 }
 
 impl Tunnel {
-    pub fn new(handle: Handle, name: impl Into<String>, port: u32, access: TunnelAccess) -> Self {
-        Self {
-            handle,
-            name: name.into(),
-            port,
-            access: Arc::new(RwLock::new(access)),
-        }
-    }
-
     pub async fn open_tunnel(&self) -> Result<Channel<Msg>, russh::Error> {
         trace!(tunnel = self.name, "Opening tunnel");
         self.handle
@@ -64,6 +60,12 @@ impl Tunnel {
 
     pub async fn is_public(&self) -> bool {
         matches!(*self.access.read().await, TunnelAccess::Public)
+    }
+
+    pub fn get_address(&self) -> Option<String> {
+        self.domain
+            .clone()
+            .map(|domain| format!("{}.{domain}", self.name))
     }
 }
 
@@ -83,40 +85,57 @@ impl Tunnels {
         }
     }
 
-    pub async fn add_tunnel(&mut self, address: &str, tunnel: Tunnel) -> (bool, String) {
-        let mut all_tunnels = self.tunnels.write().await;
+    pub async fn add_tunnel(
+        &mut self,
+        handle: Handle,
+        name: impl Into<String>,
+        port: u32,
+        user: impl Into<String>,
+    ) -> Tunnel {
+        let mut tunnel = Tunnel {
+            handle,
+            name: name.into(),
+            domain: Some(self.domain.clone()),
+            port,
+            access: Arc::new(RwLock::new(TunnelAccess::Private(user.into()))),
+        };
 
-        let address = if address == "localhost" {
+        if tunnel.name == "localhost" {
             // NOTE: It is technically possible to become stuck in this loop.
             // However, that really only becomes a concern if a (very) high
             // number of tunnels is open at the same time.
             loop {
-                let address = get_animal_name();
-                let address = format!("{address}.{}", self.domain);
-                if !all_tunnels.contains_key(&address) {
-                    break address;
+                tunnel.name = get_animal_name().into();
+                if !self
+                    .tunnels
+                    .read()
+                    .await
+                    .contains_key(&tunnel.get_address().expect("domain is set"))
+                {
+                    break;
                 }
+                trace!(tunnel = tunnel.name, "Already in use, picking new name");
             }
-        } else {
-            let address = format!("{address}.{}", self.domain);
-            if all_tunnels.contains_key(&address) {
-                return (false, address);
-            }
-            address
         };
+        let address = tunnel.get_address().expect("domain is set");
 
-        trace!(tunnel = address, "Adding tunnel");
-        all_tunnels.insert(address.clone(), tunnel);
+        if let Entry::Vacant(e) = self.tunnels.write().await.entry(address) {
+            trace!(tunnel = tunnel.name, "Adding tunnel");
+            e.insert(tunnel.clone());
+        } else {
+            trace!("Address already in use");
+            tunnel.domain = None
+        }
 
-        (true, address)
+        tunnel
     }
 
-    pub async fn remove_tunnels(&mut self, tunnels: &IndexMap<String, Option<Tunnel>>) {
+    pub async fn remove_tunnels(&mut self, tunnels: &[Tunnel]) {
         let mut all_tunnels = self.tunnels.write().await;
-        for (address, tunnel) in tunnels {
-            if tunnel.is_some() {
-                trace!(address, "Removing tunnel");
-                all_tunnels.remove(address);
+        for tunnel in tunnels {
+            if let Some(address) = tunnel.get_address() {
+                trace!(tunnel.name, "Removing tunnel");
+                all_tunnels.remove(&address);
             }
         }
     }

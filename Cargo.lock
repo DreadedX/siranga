@@ -3221,7 +3221,6 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "indexmap",
  "rand 0.8.5",
  "ratatui",
  "reqwest",

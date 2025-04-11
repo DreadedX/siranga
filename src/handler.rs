@@ -1,7 +1,6 @@
 use std::{io::Write, iter::once};
 
 use clap::Parser as _;
-use indexmap::IndexMap;
 use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect, prelude::CrosstermBackend};
 use russh::{
     ChannelId,
@@ -19,7 +18,7 @@ use crate::{
 
 pub struct Handler {
     all_tunnels: Tunnels,
-    tunnels: IndexMap<String, Option<Tunnel>>,
+    tunnels: Vec<Tunnel>,
 
     user: Option<String>,
     pty_channel: Option<ChannelId>,
@@ -33,7 +32,7 @@ impl Handler {
     pub fn new(all_tunnels: Tunnels) -> Self {
         Self {
             all_tunnels,
-            tunnels: IndexMap::new(),
+            tunnels: Default::default(),
             user: None,
             pty_channel: None,
             terminal: None,
@@ -43,10 +42,8 @@ impl Handler {
     }
 
     async fn set_access_all(&mut self, access: TunnelAccess) {
-        for (_address, tunnel) in &self.tunnels {
-            if let Some(tunnel) = tunnel {
-                tunnel.set_access(access.clone()).await;
-            }
+        for tunnel in &self.tunnels {
+            tunnel.set_access(access.clone()).await;
         }
     }
 
@@ -92,7 +89,7 @@ impl Handler {
 
     async fn set_access_selection(&mut self, access: TunnelAccess) {
         if let Some(selected) = self.selected {
-            if let Some((_, Some(tunnel))) = self.tunnels.get_index_mut(selected) {
+            if let Some(tunnel) = self.tunnels.get_mut(selected) {
                 tunnel.set_access(access).await;
             }
         } else {
@@ -267,18 +264,16 @@ impl russh::server::Handler for Handler {
             return Err(russh::Error::Inconsistent);
         };
 
-        let tunnel = Tunnel::new(
-            session.handle(),
-            address,
-            *port,
-            TunnelAccess::Private(user),
-        );
-        let (success, address) = self.all_tunnels.add_tunnel(address, tunnel.clone()).await;
+        let tunnel = self
+            .all_tunnels
+            .add_tunnel(session.handle(), address, *port, user)
+            .await;
 
-        let tunnel = if success { Some(tunnel) } else { None };
-        self.tunnels.insert(address, tunnel);
+        self.tunnels.push(tunnel);
 
-        Ok(success)
+        // Technically forwarding has failed if tunnel.domain = None, however by lying to the ssh
+        // client we can retry in the future
+        Ok(true)
     }
 
     async fn window_change_request(
