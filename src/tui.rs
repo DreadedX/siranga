@@ -95,10 +95,11 @@ impl Renderer {
     pub fn render(&mut self, frame: &mut Frame) {
         self.render_title(frame, frame.area());
 
-        let area = frame.area().inner(ratatui::layout::Margin {
+        let mut area = frame.area().inner(ratatui::layout::Margin {
             horizontal: 1,
             vertical: 1,
         });
+        area.height += 1;
         let (footer_height, footer) = self.compute_footer_text(area);
 
         let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(footer_height)]);
