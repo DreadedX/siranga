@@ -19,6 +19,10 @@ pub struct Renderer {
     table_rows: Vec<Vec<Span<'static>>>,
 }
 
+fn command<'c>(key: &'c str, text: &'c str) -> Vec<Span<'c>> {
+    vec![key.bold().light_cyan(), " ".into(), text.dim()]
+}
+
 impl Renderer {
     // NOTE: This needs to be a separate function as the render functions can not be async
     pub async fn update(
@@ -39,24 +43,24 @@ impl Renderer {
 
         let commands = if self.table_state.selected().is_some() {
             vec![
-                "(q) quit",
-                "(↓/j) move down",
-                "(↑/k) move up",
-                "(esc) deselect",
-                "",
-                "(p) make private",
-                "(ctrl-p) make protected",
-                "(shift-p) make public",
+                command("q", "quit"),
+                command("esc", "deselect"),
+                command("↓/j", "move down"),
+                command("↑/k", "move up"),
+                vec![],
+                command("p", "make private"),
+                command("ctrl-p", "make protected"),
+                command("shift-p", "make public"),
             ]
         } else {
             vec![
-                "(q) quit",
-                "(↓/j) select first",
-                "(↑/k) select last",
-                "",
-                "(p) make all private",
-                "(ctrl-p) make all protected",
-                "(shift-p) make all public",
+                command("q", "quit"),
+                command("↓/j", "select first"),
+                command("↑/k", "select last"),
+                vec![],
+                command("p", "make all private"),
+                command("ctrl-p", "make all protected"),
+                command("shift-p", "make all public"),
             ]
         };
 
@@ -64,11 +68,17 @@ impl Renderer {
         let mut line = Line::default();
         let sep = " | ";
         for command in commands {
-            if !command.is_empty() && line.width() == 0 {
-                line.push_span(command);
-            } else if !command.is_empty() && line.width() + sep.width() + command.width() <= width {
+            let command_width: usize = command.iter().map(|span| span.width()).sum();
+
+            if command_width > 0 && line.width() == 0 {
+                for span in command {
+                    line.push_span(span);
+                }
+            } else if command_width > 0 && line.width() + sep.width() + command_width <= width {
                 line.push_span(sep);
-                line.push_span(command);
+                for span in command {
+                    line.push_span(span);
+                }
             } else {
                 text.push_line(line);
                 line = Line::from(command);
