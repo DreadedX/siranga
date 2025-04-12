@@ -26,6 +26,8 @@ pub struct Handler {
     terminal: Option<Terminal<CrosstermBackend<TerminalHandle>>>,
     renderer: Renderer,
     selected: Option<usize>,
+
+    rename_buffer: Option<String>,
 }
 
 impl Handler {
@@ -38,6 +40,7 @@ impl Handler {
             terminal: None,
             renderer: Default::default(),
             selected: None,
+            rename_buffer: None,
         }
     }
 
@@ -78,7 +81,7 @@ impl Handler {
             trace!("redraw");
             self.renderer.update(&self.tunnels, self.selected).await;
             terminal.draw(|frame| {
-                self.renderer.render(frame);
+                self.renderer.render(frame, &self.rename_buffer);
             })?;
         } else {
             warn!("Redraw called without valid terminal");
@@ -98,62 +101,102 @@ impl Handler {
     }
 
     async fn handle_input(&mut self, input: Input) -> std::io::Result<bool> {
-        match input {
-            Input::Char('q') => {
-                self.close()?;
-                return Ok(false);
-            }
-            Input::Char('k') | Input::Up => self.previous_row(),
-            Input::Char('j') | Input::Down => self.next_row(),
-            Input::Esc => self.selected = None,
-            Input::Char('P') => {
-                self.set_access_selection(TunnelAccess::Public).await;
-            }
-            Input::Char('p') => {
-                if let Some(user) = self.user.clone() {
-                    self.set_access_selection(TunnelAccess::Private(user)).await;
-                } else {
-                    warn!("User not set");
+        if self.rename_buffer.is_some() {
+            match input {
+                Input::Char(c) if c.is_alphanumeric() => {
+                    self.rename_buffer
+                        .as_mut()
+                        .expect("input buffer should be some")
+                        .push(c.to_ascii_lowercase());
                 }
+                Input::Backspace => {
+                    self.rename_buffer
+                        .as_mut()
+                        .expect("input buffer should be some")
+                        .pop();
+                }
+                Input::Enter => {
+                    debug!("Input accepted");
+                    if let Some(selected) = self.selected
+                        && let Some(tunnel) = self.tunnels.get_mut(selected)
+                        && let Some(buffer) = self.rename_buffer.take()
+                    {
+                        *tunnel = self.all_tunnels.rename_tunnel(tunnel.clone(), buffer).await;
+                    } else {
+                        warn!("Trying to rename invalid tunnel");
+                    }
+                }
+                Input::Esc => {
+                    debug!("Input rejected");
+                    self.rename_buffer = None;
+                }
+                _ => return Ok(false),
             }
-            Input::Char('r') => {
-                let Some(selected) = self.selected else {
-                    return Ok(false);
-                };
-
-                let Some(tunnel) = self.tunnels.get_mut(selected) else {
-                    warn!("Trying to retry invalid tunnel");
-                    return Ok(false);
-                };
-
-                *tunnel = self.all_tunnels.retry_tunnel(tunnel.clone()).await;
-            }
-            Input::Delete => {
-                let Some(selected) = self.selected else {
-                    return Ok(false);
-                };
-
-                if selected >= self.tunnels.len() {
-                    warn!("Trying to delete tunnel out of bounds");
+            debug!("Input: {:?}", self.rename_buffer);
+        } else {
+            match input {
+                Input::Char('q') => {
+                    self.close()?;
                     return Ok(false);
                 }
-
-                let tunnel = self.tunnels.remove(selected);
-                self.all_tunnels.remove_tunnel(tunnel).await;
-
-                if self.tunnels.is_empty() {
-                    self.selected = None;
-                } else {
-                    self.selected = Some(min(self.tunnels.len() - 1, selected));
+                Input::Char('k') | Input::Up => self.previous_row(),
+                Input::Char('j') | Input::Down => self.next_row(),
+                Input::Esc => self.selected = None,
+                Input::Char('P') => {
+                    self.set_access_selection(TunnelAccess::Public).await;
                 }
-            }
-            Input::CtrlP => {
-                self.set_access_selection(TunnelAccess::Protected).await;
-            }
-            _ => {
-                return Ok(false);
-            }
-        };
+                Input::Char('p') => {
+                    if let Some(user) = self.user.clone() {
+                        self.set_access_selection(TunnelAccess::Private(user)).await;
+                    } else {
+                        warn!("User not set");
+                    }
+                }
+                Input::Char('R') => {
+                    let Some(selected) = self.selected else {
+                        return Ok(false);
+                    };
+
+                    let Some(tunnel) = self.tunnels.get_mut(selected) else {
+                        warn!("Trying to retry invalid tunnel");
+                        return Ok(false);
+                    };
+
+                    *tunnel = self.all_tunnels.retry_tunnel(tunnel.clone()).await;
+                }
+                Input::Char('r') => {
+                    if self.selected.is_some() {
+                        trace!("Renaming tunnel");
+                        self.rename_buffer = Some(String::new());
+                    }
+                }
+                Input::Delete => {
+                    let Some(selected) = self.selected else {
+                        return Ok(false);
+                    };
+
+                    if selected >= self.tunnels.len() {
+                        warn!("Trying to delete tunnel out of bounds");
+                        return Ok(false);
+                    }
+
+                    let tunnel = self.tunnels.remove(selected);
+                    self.all_tunnels.remove_tunnel(tunnel).await;
+
+                    if self.tunnels.is_empty() {
+                        self.selected = None;
+                    } else {
+                        self.selected = Some(min(self.tunnels.len() - 1, selected));
+                    }
+                }
+                Input::CtrlP => {
+                    self.set_access_selection(TunnelAccess::Protected).await;
+                }
+                _ => {
+                    return Ok(false);
+                }
+            };
+        }
 
         Ok(true)
     }

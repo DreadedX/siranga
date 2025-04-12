@@ -8,6 +8,7 @@ pub enum Input {
     Delete,
     Esc,
     Enter,
+    Backspace,
     CtrlP,
     Other,
 }
@@ -23,6 +24,7 @@ impl From<&[u8]> for Input {
             [13] => Input::Enter,
             // NOTE: Actual char is DLE, this happens to map to ctrl-p
             [16] => Input::CtrlP,
+            [127] => Input::Backspace,
             other => {
                 trace!("{other:?}");
                 Input::Other

@@ -1,12 +1,14 @@
-use std::cmp;
+use std::cmp::{self, max};
 
 use futures::StreamExt;
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::{Constraint, Flex, Layout, Position, Rect},
     style::{Style, Stylize as _},
     text::{Line, Span, Text},
-    widgets::{Block, BorderType, Cell, HighlightSpacing, Paragraph, Row, Table, TableState},
+    widgets::{
+        Block, BorderType, Cell, Clear, HighlightSpacing, Paragraph, Row, Table, TableState,
+    },
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -33,7 +35,7 @@ impl Renderer {
         self.table_state.select(index);
     }
 
-    fn compute_footer_text<'a>(&self, rect: Rect) -> (u16, Paragraph<'a>) {
+    pub fn compute_footer_text<'a>(&self, rect: Rect) -> (u16, Paragraph<'a>) {
         let width = rect.width as usize - 2;
 
         let commands = if self.table_state.selected().is_some() {
@@ -43,11 +45,13 @@ impl Renderer {
                 command("↓/j", "move down"),
                 command("↑/k", "move up"),
                 vec![],
+                command("del", "remove"),
+                command("r", "rename"),
+                command("shift-r", "retry"),
+                vec![],
                 command("p", "make private"),
                 command("ctrl-p", "make protected"),
                 command("shift-p", "make public"),
-                command("del", "remove"),
-                command("r", "retry"),
             ]
         } else {
             vec![
@@ -89,7 +93,7 @@ impl Renderer {
         (height as u16, Paragraph::new(text).centered().block(block))
     }
 
-    pub fn render(&mut self, frame: &mut Frame) {
+    pub fn render(&mut self, frame: &mut Frame, input: &Option<String>) {
         self.render_title(frame, frame.area());
 
         let mut area = frame.area().inner(ratatui::layout::Margin {
@@ -104,6 +108,28 @@ impl Renderer {
 
         self.render_table(frame, chunks[0]);
         frame.render_widget(footer, chunks[1]);
+
+        if let Some(input) = input {
+            self.render_rename(frame, area, input);
+        }
+    }
+
+    pub fn render_rename(&self, frame: &mut Frame, area: Rect, input: &str) {
+        let vertical = Layout::vertical([Constraint::Length(3)]).flex(Flex::Center);
+        let horizontal = Layout::horizontal([Constraint::Max(max(20, input.width() as u16 + 4))])
+            .flex(Flex::Center);
+        let [area] = vertical.areas(area);
+        let [area] = horizontal.areas(area);
+
+        let title = Line::from("New name").centered();
+        let block = Block::bordered().title(title);
+        let text = Paragraph::new(format!(" {input}")).block(block);
+
+        frame.render_widget(Clear, area);
+
+        frame.render_widget(text, area);
+
+        frame.set_cursor_position(Position::new(area.x + input.width() as u16 + 2, area.y + 1));
     }
 
     pub fn render_title(&self, frame: &mut Frame, rect: Rect) {

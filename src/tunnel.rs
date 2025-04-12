@@ -41,6 +41,7 @@ pub enum TunnelAccess {
 pub struct Tunnel {
     handle: Handle,
     name: String,
+    address: String,
     domain: Option<String>,
     port: u32,
     access: Arc<RwLock<TunnelAccess>>,
@@ -50,7 +51,7 @@ impl Tunnel {
     pub async fn open_tunnel(&self) -> Result<Channel<Msg>, russh::Error> {
         trace!(tunnel = self.name, "Opening tunnel");
         self.handle
-            .channel_open_forwarded_tcpip(&self.name, self.port, &self.name, self.port)
+            .channel_open_forwarded_tcpip(&self.address, self.port, &self.address, self.port)
             .await
     }
 
@@ -92,9 +93,11 @@ impl Tunnels {
         port: u32,
         user: impl Into<String>,
     ) -> Tunnel {
+        let address = name.into();
         let mut tunnel = Tunnel {
             handle,
-            name: name.into(),
+            name: address.clone(),
+            address,
             domain: Some(self.domain.clone()),
             port,
             access: Arc::new(RwLock::new(TunnelAccess::Private(user.into()))),
@@ -146,6 +149,14 @@ impl Tunnels {
 
     pub async fn retry_tunnel(&mut self, tunnel: Tunnel) -> Tunnel {
         let mut tunnel = self.remove_tunnel(tunnel).await;
+        tunnel.domain = Some(self.domain.clone());
+
+        self.add_tunnel(tunnel).await
+    }
+
+    pub async fn rename_tunnel(&mut self, tunnel: Tunnel, name: impl Into<String>) -> Tunnel {
+        let mut tunnel = self.remove_tunnel(tunnel).await;
+        tunnel.name = name.into();
         tunnel.domain = Some(self.domain.clone());
 
         self.add_tunnel(tunnel).await
