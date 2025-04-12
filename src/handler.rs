@@ -116,6 +116,18 @@ impl Handler {
                     warn!("User not set");
                 }
             }
+            Input::Char('r') => {
+                let Some(selected) = self.selected else {
+                    return Ok(false);
+                };
+
+                let Some(tunnel) = self.tunnels.get_mut(selected) else {
+                    warn!("Trying to retry invalid tunnel");
+                    return Ok(false);
+                };
+
+                *tunnel = self.all_tunnels.retry_tunnel(tunnel.clone()).await;
+            }
             Input::Delete => {
                 let Some(selected) = self.selected else {
                     return Ok(false);
@@ -285,7 +297,7 @@ impl russh::server::Handler for Handler {
 
         let tunnel = self
             .all_tunnels
-            .add_tunnel(session.handle(), address, *port, user)
+            .create_tunnel(session.handle(), address, *port, user)
             .await;
 
         self.tunnels.push(tunnel);

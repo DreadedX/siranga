@@ -85,7 +85,7 @@ impl Tunnels {
         }
     }
 
-    pub async fn add_tunnel(
+    pub async fn create_tunnel(
         &mut self,
         handle: Handle,
         name: impl Into<String>,
@@ -117,8 +117,12 @@ impl Tunnels {
                 trace!(tunnel = tunnel.name, "Already in use, picking new name");
             }
         };
-        let address = tunnel.get_address().expect("domain is set");
 
+        self.add_tunnel(tunnel).await
+    }
+
+    async fn add_tunnel(&mut self, mut tunnel: Tunnel) -> Tunnel {
+        let address = tunnel.get_address().expect("domain is set");
         if let Entry::Vacant(e) = self.tunnels.write().await.entry(address) {
             trace!(tunnel = tunnel.name, "Adding tunnel");
             e.insert(tunnel.clone());
@@ -130,12 +134,21 @@ impl Tunnels {
         tunnel
     }
 
-    pub async fn remove_tunnel(&mut self, tunnel: Tunnel) {
+    pub async fn remove_tunnel(&mut self, mut tunnel: Tunnel) -> Tunnel {
         let mut all_tunnels = self.tunnels.write().await;
         if let Some(address) = tunnel.get_address() {
             trace!(tunnel.name, "Removing tunnel");
             all_tunnels.remove(&address);
         }
+        tunnel.domain = None;
+        tunnel
+    }
+
+    pub async fn retry_tunnel(&mut self, tunnel: Tunnel) -> Tunnel {
+        let mut tunnel = self.remove_tunnel(tunnel).await;
+        tunnel.domain = Some(self.domain.clone());
+
+        self.add_tunnel(tunnel).await
     }
 }
 
