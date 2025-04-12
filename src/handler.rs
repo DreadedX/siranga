@@ -1,4 +1,4 @@
-use std::{io::Write, iter::once};
+use std::{cmp::min, io::Write, iter::once};
 
 use clap::Parser as _;
 use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect, prelude::CrosstermBackend};
@@ -114,6 +114,25 @@ impl Handler {
                     self.set_access_selection(TunnelAccess::Private(user)).await;
                 } else {
                     warn!("User not set");
+                }
+            }
+            Input::Delete => {
+                let Some(selected) = self.selected else {
+                    return Ok(false);
+                };
+
+                if selected >= self.tunnels.len() {
+                    warn!("Trying to delete tunnel out of bounds");
+                    return Ok(false);
+                }
+
+                let tunnel = self.tunnels.remove(selected);
+                self.all_tunnels.remove_tunnel(tunnel).await;
+
+                if self.tunnels.is_empty() {
+                    self.selected = None;
+                } else {
+                    self.selected = Some(min(self.tunnels.len() - 1, selected));
                 }
             }
             Input::CtrlP => {
@@ -321,7 +340,9 @@ impl Drop for Handler {
         let mut all_tunnels = self.all_tunnels.clone();
 
         tokio::spawn(async move {
-            all_tunnels.remove_tunnels(&tunnels).await;
+            for tunnel in tunnels {
+                all_tunnels.remove_tunnel(tunnel).await;
+            }
         });
     }
 }

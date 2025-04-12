@@ -42,6 +42,7 @@ impl Renderer {
                 command("esc", "deselect"),
                 command("↓/j", "move down"),
                 command("↑/k", "move up"),
+                command("del", "close tunnel"),
                 vec![],
                 command("p", "make private"),
                 command("ctrl-p", "make protected"),

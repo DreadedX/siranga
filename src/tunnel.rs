@@ -130,13 +130,11 @@ impl Tunnels {
         tunnel
     }
 
-    pub async fn remove_tunnels(&mut self, tunnels: &[Tunnel]) {
+    pub async fn remove_tunnel(&mut self, tunnel: Tunnel) {
         let mut all_tunnels = self.tunnels.write().await;
-        for tunnel in tunnels {
-            if let Some(address) = tunnel.get_address() {
-                trace!(tunnel.name, "Removing tunnel");
-                all_tunnels.remove(&address);
-            }
+        if let Some(address) = tunnel.get_address() {
+            trace!(tunnel.name, "Removing tunnel");
+            all_tunnels.remove(&address);
         }
     }
 }

@@ -5,6 +5,7 @@ pub enum Input {
     Char(char),
     Up,
     Down,
+    Delete,
     Esc,
     Enter,
     CtrlP,
@@ -18,6 +19,7 @@ impl From<&[u8]> for Input {
             [27] => Input::Esc,
             [27, 91, 65] => Input::Up,
             [27, 91, 66] => Input::Down,
+            [27, 91, 51, 126] => Input::Delete,
             [13] => Input::Enter,
             // NOTE: Actual char is DLE, this happens to map to ctrl-p
             [16] => Input::CtrlP,
