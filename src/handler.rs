@@ -202,6 +202,9 @@ impl Handler {
     }
 
     fn next_row(&mut self) {
+        if self.tunnels.is_empty() {
+            return;
+        }
         let i = match self.selected {
             Some(i) => {
                 if i < self.tunnels.len() - 1 {
@@ -216,6 +219,9 @@ impl Handler {
     }
 
     fn previous_row(&mut self) {
+        if self.tunnels.is_empty() {
+            return;
+        }
         let i = match self.selected {
             Some(i) => {
                 if i > 0 {
