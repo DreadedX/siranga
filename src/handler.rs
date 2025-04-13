@@ -241,17 +241,10 @@ impl russh::server::Handler for Handler {
 
     async fn channel_open_session(
         &mut self,
-        channel: russh::Channel<Msg>,
-        session: &mut Session,
+        _channel: russh::Channel<Msg>,
+        _session: &mut Session,
     ) -> Result<bool, Self::Error> {
         trace!("channel_open_session");
-
-        let terminal_handle = TerminalHandle::start(session.handle(), channel.id()).await?;
-        let backend = CrosstermBackend::new(terminal_handle);
-        let options = TerminalOptions {
-            viewport: Viewport::Fixed(Rect::default()),
-        };
-        self.terminal = Some(Terminal::with_options(backend, options)?);
 
         Ok(true)
     }
@@ -385,7 +378,19 @@ impl russh::server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         trace!(col_width, row_height, ?channel, "pty_request");
 
-        self.resize(col_width, row_height).await?;
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: col_width as u16,
+            height: row_height as u16,
+        };
+        let terminal_handle = TerminalHandle::start(session.handle(), channel).await?;
+        let backend = CrosstermBackend::new(terminal_handle);
+        let options = TerminalOptions {
+            viewport: Viewport::Fixed(rect),
+        };
+        self.terminal = Some(Terminal::with_options(backend, options)?);
+        self.redraw().await?;
 
         self.pty_channel = Some(channel);
 
