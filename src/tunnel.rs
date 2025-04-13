@@ -86,6 +86,27 @@ impl Tunnels {
         }
     }
 
+    async fn generate_tunnel_name(&mut self, mut tunnel: Tunnel) -> Tunnel {
+        // NOTE: It is technically possible to become stuck in this loop.
+        // However, that really only becomes a concern if a (very) high
+        // number of tunnels is open at the same time.
+        tunnel.domain = Some(self.domain.clone());
+        loop {
+            tunnel.name = get_animal_name().into();
+            if !self
+                .tunnels
+                .read()
+                .await
+                .contains_key(&tunnel.get_address().expect("domain is set"))
+            {
+                break;
+            }
+            trace!(tunnel = tunnel.name, "Already in use, picking new name");
+        }
+
+        tunnel
+    }
+
     pub async fn create_tunnel(
         &mut self,
         handle: Handle,
@@ -104,21 +125,7 @@ impl Tunnels {
         };
 
         if tunnel.name == "localhost" {
-            // NOTE: It is technically possible to become stuck in this loop.
-            // However, that really only becomes a concern if a (very) high
-            // number of tunnels is open at the same time.
-            loop {
-                tunnel.name = get_animal_name().into();
-                if !self
-                    .tunnels
-                    .read()
-                    .await
-                    .contains_key(&tunnel.get_address().expect("domain is set"))
-                {
-                    break;
-                }
-                trace!(tunnel = tunnel.name, "Already in use, picking new name");
-            }
+            tunnel = self.generate_tunnel_name(tunnel).await;
         };
 
         self.add_tunnel(tunnel).await
@@ -156,8 +163,13 @@ impl Tunnels {
 
     pub async fn rename_tunnel(&mut self, tunnel: Tunnel, name: impl Into<String>) -> Tunnel {
         let mut tunnel = self.remove_tunnel(tunnel).await;
-        tunnel.name = name.into();
-        tunnel.domain = Some(self.domain.clone());
+        let name: String = name.into();
+        if name.is_empty() {
+            tunnel = self.generate_tunnel_name(tunnel).await;
+        } else {
+            tunnel.domain = Some(self.domain.clone());
+            tunnel.name = name;
+        }
 
         self.add_tunnel(tunnel).await
     }
