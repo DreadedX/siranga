@@ -1,0 +1,15 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: tunnel
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: HostRegexp(`^.+\.tunnel\.${domain//./\\.}$`)
+      kind: Rule
+      services:
+        - name: tunnel
+          port: 3000
+  tls:
+    secretName: tunnel-tls

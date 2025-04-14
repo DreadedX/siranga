@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tunnel
+  labels:
+    app: tunnel
+    app.kubernetes.io/name: tunnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tunnel
+  template:
+    metadata:
+      labels:
+        app: tunnel
+      annotations:
+        kubectl.kubernetes.io/default-container: tunnel
+    spec:
+      containers:
+        - name: tunnel
+          image: git.huizinga.dev/dreaded_x/tunnel_rs@${DIGEST}
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 100Mi
+          ports:
+            - containerPort: 3000
+            - containerPort: 2222
+          volumeMounts:
+            - name: credentials
+              readOnly: true
+              mountPath: "/secrets/credentials"
+            - name: key
+              readOnly: true
+              mountPath: "/secrets/key"
+          env:
+            - name: RUST_LOG
+              value: info,tunnel_rs=debug
+            - name: TUNNEL_DOMAIN
+              value: tunnel.${domain}
+            - name: AUTHZ_ENDPOINT
+              value: http://authelia.authelia.svc.cluster.local:80/api/authz/forward-auth
+            - name: LDAP_ADDRESS
+              value: ldap://lldap.lldap.svc.cluster.local:3890
+            - name: LDAP_BASE
+              value: ou=people,dc=huizinga,dc=dev
+            - name: LDAP_BIND_DN
+              value: uid=tunnel.tunnel,ou=people,dc=huizinga,dc=dev
+            - name: LDAP_PASSWORD_FILE
+              value: /secrets/credentials/password
+            - name: PRIVATE_KEY_FILE
+              value: /secrets/key/private.pem
+      volumes:
+        - name: credentials
+          secret:
+            secretName: tunnel-lldap-credentials
+
+        - name: key
+          secret:
+            secretName: tunnel-key

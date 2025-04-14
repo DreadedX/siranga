@@ -1,0 +1,5 @@
+apiVersion: lldap.huizinga.dev/v1
+kind: ServiceUser
+metadata:
+  name: tunnel
+spec: {}

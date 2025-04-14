@@ -45,6 +45,7 @@ repos:
         name: audit
         description: Audit packages
         entry: cargo audit
+        args: ["--deny", "warnings"]
         language: system
         pass_filenames: false
         verbose: true

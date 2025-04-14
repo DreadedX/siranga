@@ -1,4 +1,3 @@
-#![feature(impl_trait_in_fn_trait_return)]
 #![feature(let_chains)]
 mod animals;
 mod auth;
