@@ -6,7 +6,7 @@ use hyper::server::conn::http1::{self};
 use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use tunnel_rs::{Ldap, Server, Tunnels};
 
@@ -24,23 +24,30 @@ async fn main() -> color_eyre::Result<()> {
         russh::keys::PrivateKey::read_openssh_file(Path::new(&path))
             .wrap_err_with(|| format!("failed to read ssh key: {path}"))?
     } else {
+        warn!("No private key file specified, generating a new key");
         russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)?
     };
 
-    let port = 3000;
-    let domain = std::env::var("TUNNEL_DOMAIN").unwrap_or_else(|_| format!("localhost:{port}"));
-    let authz_address = std::env::var("AUTHZ_ENDPOINT")
-        .unwrap_or("http://localhost:9091/api/authz/forward-auth".into());
+    let http_port = std::env::var("HTTP_PORT")
+        .map(|port| port.parse())
+        .unwrap_or(Ok(3000))?;
+    let ssh_port = std::env::var("SSH_PORT")
+        .map(|port| port.parse())
+        .unwrap_or(Ok(2222))?;
+
+    let domain =
+        std::env::var("TUNNEL_DOMAIN").unwrap_or_else(|_| format!("localhost:{http_port}"));
+    let authz_address = std::env::var("AUTHZ_ENDPOINT").wrap_err("AUTHZ_ENDPOINT is not set")?;
 
     let ldap = Ldap::start_from_env().await?;
 
     let tunnels = Tunnels::new(domain, authz_address);
     let mut ssh = Server::new(ldap, tunnels.clone());
-    let addr = SocketAddr::from(([0, 0, 0, 0], 2222));
+    let addr = SocketAddr::from(([0, 0, 0, 0], ssh_port));
     tokio::spawn(async move { ssh.run(key, addr).await });
     info!("SSH is available on {addr}");
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], http_port));
     let listener = TcpListener::bind(addr).await?;
     info!("HTTP is available on {addr}");
 
