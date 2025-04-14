@@ -8,7 +8,7 @@ use rand::rngs::OsRng;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use tunnel_rs::{Server, Tunnels};
+use tunnel_rs::{Ldap, Server, Tunnels};
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -32,8 +32,10 @@ async fn main() -> color_eyre::Result<()> {
     let authz_address = std::env::var("AUTHZ_ENDPOINT")
         .unwrap_or("http://localhost:9091/api/authz/forward-auth".into());
 
+    let ldap = Ldap::start_from_env().await?;
+
     let tunnels = Tunnels::new(domain, authz_address);
-    let mut ssh = Server::new(tunnels.clone());
+    let mut ssh = Server::new(ldap, tunnels.clone());
     let addr = SocketAddr::from(([0, 0, 0, 0], 2222));
     tokio::spawn(async move { ssh.run(key, addr).await });
     info!("SSH is available on {addr}");

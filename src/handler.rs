@@ -4,19 +4,33 @@ use clap::Parser as _;
 use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect, prelude::CrosstermBackend};
 use russh::{
     ChannelId,
+    keys::ssh_key::PublicKey,
     server::{Auth, Msg, Session},
 };
 use tracing::{debug, trace, warn};
 
 use crate::{
-    cli,
+    Ldap, cli,
     input::Input,
     io::TerminalHandle,
+    ldap::LdapError,
     tui::Renderer,
     tunnel::{Tunnel, TunnelAccess, Tunnels},
 };
 
+#[derive(Debug, thiserror::Error)]
+pub enum HandlerError {
+    #[error(transparent)]
+    Russh(#[from] russh::Error),
+    #[error(transparent)]
+    Ldap(#[from] LdapError),
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+}
+
 pub struct Handler {
+    ldap: Ldap,
+
     all_tunnels: Tunnels,
     tunnels: Vec<Tunnel>,
 
@@ -31,8 +45,9 @@ pub struct Handler {
 }
 
 impl Handler {
-    pub fn new(all_tunnels: Tunnels) -> Self {
+    pub fn new(ldap: Ldap, all_tunnels: Tunnels) -> Self {
         Self {
+            ldap,
             all_tunnels,
             tunnels: Default::default(),
             user: None,
@@ -237,7 +252,7 @@ impl Handler {
 }
 
 impl russh::server::Handler for Handler {
-    type Error = russh::Error;
+    type Error = HandlerError;
 
     async fn channel_open_session(
         &mut self,
@@ -252,14 +267,21 @@ impl russh::server::Handler for Handler {
     async fn auth_publickey(
         &mut self,
         user: &str,
-        _public_key: &russh::keys::ssh_key::PublicKey,
+        public_key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
         debug!("Login from {user}");
+        trace!("{public_key:?}");
 
         self.user = Some(user.into());
 
-        // TODO: Get ssh keys associated with user from ldap
-        Ok(Auth::Accept)
+        for key in self.ldap.get_ssh_keys(user).await? {
+            trace!("{key:?}");
+            if key.key_data() == public_key.key_data() {
+                return Ok(Auth::Accept);
+            }
+        }
+
+        Ok(Auth::reject())
     }
 
     async fn data(
@@ -322,7 +344,7 @@ impl russh::server::Handler for Handler {
             }
         }
 
-        session.channel_success(channel)
+        Ok(session.channel_success(channel)?)
     }
 
     async fn tcpip_forward(
@@ -334,7 +356,7 @@ impl russh::server::Handler for Handler {
         trace!(address, port, "tcpip_forward");
 
         let Some(user) = self.user.clone() else {
-            return Err(russh::Error::Inconsistent);
+            return Err(russh::Error::Inconsistent.into());
         };
 
         let tunnel = self

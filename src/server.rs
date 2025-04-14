@@ -1,18 +1,19 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use russh::{keys::PrivateKey, server::Server as _};
+use russh::{MethodKind, keys::PrivateKey, server::Server as _};
 use tokio::net::ToSocketAddrs;
 use tracing::{debug, warn};
 
-use crate::{handler::Handler, tunnel::Tunnels};
+use crate::{Ldap, handler::Handler, tunnel::Tunnels};
 
 pub struct Server {
+    ldap: Ldap,
     tunnels: Tunnels,
 }
 
 impl Server {
-    pub fn new(tunnels: Tunnels) -> Self {
-        Server { tunnels }
+    pub fn new(ldap: Ldap, tunnels: Tunnels) -> Self {
+        Server { ldap, tunnels }
     }
 
     pub fn tunnels(&self) -> Tunnels {
@@ -26,13 +27,14 @@ impl Server {
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         let config = russh::server::Config {
             inactivity_timeout: Some(Duration::from_secs(3600)),
-            auth_rejection_time: Duration::from_secs(3),
+            auth_rejection_time: Duration::from_secs(1),
             auth_rejection_time_initial: Some(Duration::from_secs(0)),
             keys: vec![key],
             preferred: russh::Preferred {
                 ..Default::default()
             },
             nodelay: true,
+            methods: [MethodKind::PublicKey].as_slice().into(),
             ..Default::default()
         };
         let config = Arc::new(config);
@@ -47,7 +49,7 @@ impl russh::server::Server for Server {
     type Handler = Handler;
 
     fn new_client(&mut self, _peer_addr: Option<SocketAddr>) -> Self::Handler {
-        Handler::new(self.tunnels.clone())
+        Handler::new(self.ldap.clone(), self.tunnels.clone())
     }
 
     fn handle_session_error(&mut self, error: <Self::Handler as russh::server::Handler>::Error) {
