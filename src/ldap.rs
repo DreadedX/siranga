@@ -33,7 +33,11 @@ impl Ldap {
                 std::env::var("LDAP_PASSWORD")
                     .map_err(|_| LdapError::MissingEnvironmentVariable("LDAP_PASSWORD"))
             },
-            |path| std::fs::read_to_string(path).map_err(|err| err.into()),
+            |path| {
+                std::fs::read_to_string(path)
+                    .map(|v| v.trim().into())
+                    .map_err(|err| err.into())
+            },
         )?;
 
         let (conn, mut ldap) = LdapConnAsync::new(&address).await?;
