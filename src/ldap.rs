@@ -13,9 +13,9 @@ pub enum LdapError {
     Ldap(#[from] ldap3::LdapError),
     #[error("Key error: {0}")]
     FailedToParseKey(#[from] russh::Error),
-    #[error("Mising environment variable: {0}")]
+    #[error("Missing environment variable: {0}")]
     MissingEnvironmentVariable(&'static str),
-    #[error("Mising environment variable: {0}")]
+    #[error("Could not read password file: {0}")]
     CouldNotReadPasswordFile(#[from] std::io::Error),
 }
 
