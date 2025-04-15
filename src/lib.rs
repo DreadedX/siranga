@@ -1,6 +1,6 @@
 #![feature(let_chains)]
 mod animals;
-mod auth;
+pub mod auth;
 mod cli;
 mod handler;
 mod helper;
@@ -16,4 +16,5 @@ mod wrapper;
 
 pub use ldap::Ldap;
 pub use server::Server;
-pub use tunnel::{Tunnel, Tunnels};
+pub use tunnel::Registry;
+pub use tunnel::Tunnel;

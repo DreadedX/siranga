@@ -4,20 +4,16 @@ use russh::{MethodKind, keys::PrivateKey, server::Server as _};
 use tokio::net::ToSocketAddrs;
 use tracing::{debug, warn};
 
-use crate::{Ldap, handler::Handler, tunnel::Tunnels};
+use crate::{Ldap, handler::Handler, tunnel::Registry};
 
 pub struct Server {
     ldap: Ldap,
-    tunnels: Tunnels,
+    registry: Registry,
 }
 
 impl Server {
-    pub fn new(ldap: Ldap, tunnels: Tunnels) -> Self {
-        Server { ldap, tunnels }
-    }
-
-    pub fn tunnels(&self) -> Tunnels {
-        self.tunnels.clone()
+    pub fn new(ldap: Ldap, registry: Registry) -> Self {
+        Server { ldap, registry }
     }
 
     pub fn run(
@@ -49,7 +45,7 @@ impl russh::server::Server for Server {
     type Handler = Handler;
 
     fn new_client(&mut self, _peer_addr: Option<SocketAddr>) -> Self::Handler {
-        Handler::new(self.ldap.clone(), self.tunnels.clone())
+        Handler::new(self.ldap.clone(), self.registry.clone())
     }
 
     fn handle_session_error(&mut self, error: <Self::Handler as russh::server::Handler>::Error) {

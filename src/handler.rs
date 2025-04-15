@@ -15,7 +15,7 @@ use crate::{
     io::TerminalHandle,
     ldap::LdapError,
     tui::Renderer,
-    tunnel::{Tunnel, TunnelAccess, Tunnels},
+    tunnel::{Registry, Tunnel, TunnelAccess},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -31,7 +31,7 @@ pub enum HandlerError {
 pub struct Handler {
     ldap: Ldap,
 
-    all_tunnels: Tunnels,
+    registry: Registry,
     tunnels: Vec<Tunnel>,
 
     user: Option<String>,
@@ -45,10 +45,10 @@ pub struct Handler {
 }
 
 impl Handler {
-    pub fn new(ldap: Ldap, all_tunnels: Tunnels) -> Self {
+    pub fn new(ldap: Ldap, registry: Registry) -> Self {
         Self {
             ldap,
-            all_tunnels,
+            registry,
             tunnels: Default::default(),
             user: None,
             pty_channel: None,
@@ -136,7 +136,7 @@ impl Handler {
                         && let Some(tunnel) = self.tunnels.get_mut(selected)
                         && let Some(buffer) = self.rename_buffer.take()
                     {
-                        *tunnel = self.all_tunnels.rename_tunnel(tunnel.clone(), buffer).await;
+                        tunnel.set_name(buffer).await;
                     } else {
                         warn!("Trying to rename invalid tunnel");
                     }
@@ -177,7 +177,7 @@ impl Handler {
                         return Ok(false);
                     };
 
-                    *tunnel = self.all_tunnels.retry_tunnel(tunnel.clone()).await;
+                    tunnel.retry().await;
                 }
                 Input::Char('r') => {
                     if self.selected.is_some() {
@@ -195,8 +195,7 @@ impl Handler {
                         return Ok(false);
                     }
 
-                    let tunnel = self.tunnels.remove(selected);
-                    self.all_tunnels.remove_tunnel(tunnel).await;
+                    self.tunnels.remove(selected);
 
                     if self.tunnels.is_empty() {
                         self.selected = None;
@@ -359,10 +358,14 @@ impl russh::server::Handler for Handler {
             return Err(russh::Error::Inconsistent.into());
         };
 
-        let tunnel = self
-            .all_tunnels
-            .create_tunnel(session.handle(), address, *port, user)
-            .await;
+        let tunnel = Tunnel::create(
+            &mut self.registry,
+            session.handle(),
+            address,
+            *port,
+            TunnelAccess::Private(user),
+        )
+        .await;
 
         self.tunnels.push(tunnel);
 
@@ -419,18 +422,5 @@ impl russh::server::Handler for Handler {
         session.channel_success(channel)?;
 
         Ok(())
-    }
-}
-
-impl Drop for Handler {
-    fn drop(&mut self) {
-        let tunnels = self.tunnels.clone();
-        let mut all_tunnels = self.all_tunnels.clone();
-
-        tokio::spawn(async move {
-            for tunnel in tunnels {
-                all_tunnels.remove_tunnel(tunnel).await;
-            }
-        });
     }
 }

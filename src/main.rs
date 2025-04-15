@@ -7,8 +7,8 @@ use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use tunnel_rs::{Ldap, Server, Tunnels};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tunnel_rs::{Ldap, Registry, Server, auth::ForwardAuth};
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -18,7 +18,10 @@ async fn main() -> color_eyre::Result<()> {
     let env_filter = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("info"))?;
 
     let logger = tracing_subscriber::fmt::layer().compact();
-    Registry::default().with(logger).with(env_filter).init();
+    tracing_subscriber::Registry::default()
+        .with(logger)
+        .with(env_filter)
+        .init();
 
     let key = if let Ok(path) = std::env::var("PRIVATE_KEY_FILE") {
         russh::keys::PrivateKey::read_openssh_file(Path::new(&path))
@@ -41,7 +44,8 @@ async fn main() -> color_eyre::Result<()> {
 
     let ldap = Ldap::start_from_env().await?;
 
-    let tunnels = Tunnels::new(domain, authz_address);
+    let auth = ForwardAuth::new(authz_address);
+    let tunnels = Registry::new(domain, auth);
     let mut ssh = Server::new(ldap, tunnels.clone());
     let addr = SocketAddr::from(([0, 0, 0, 0], ssh_port));
     tokio::spawn(async move { ssh.run(key, addr).await });
