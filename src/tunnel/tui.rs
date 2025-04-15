@@ -34,8 +34,8 @@ pub async fn to_row(tunnel: &Tunnel) -> Vec<Span<'static>> {
         access,
         tunnel.port.to_string().into(),
         address,
-        tunnel.get_connections().to_string().into(),
-        tunnel.get_rx_string().into(),
-        tunnel.get_tx_string().into(),
+        tunnel.stats.connections().to_string().into(),
+        tunnel.stats.rx().to_string().into(),
+        tunnel.stats.tx().to_string().into(),
     ]
 }

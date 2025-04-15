@@ -11,10 +11,7 @@ use std::{
     collections::{HashMap, hash_map::Entry},
     ops::Deref,
     pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::Arc,
 };
 use tracing::{debug, error, trace, warn};
 
@@ -25,7 +22,7 @@ use crate::{
     animals::get_animal_name,
     auth::{AuthStatus, ForwardAuth},
     helper::response,
-    units::Unit,
+    stats::Stats,
     wrapper::Wrapper,
 };
 
@@ -46,25 +43,19 @@ pub struct Tunnel {
     domain: Option<String>,
     port: u32,
     access: Arc<RwLock<TunnelAccess>>,
-    connection_count: Arc<AtomicUsize>,
-    bytes_rx: Arc<AtomicUsize>,
-    bytes_tx: Arc<AtomicUsize>,
+    stats: Arc<Stats>,
 }
 
 impl Tunnel {
     pub async fn open_tunnel(&self) -> Result<Wrapper, russh::Error> {
         trace!(tunnel = self.name, "Opening tunnel");
-        self.connection_count.fetch_add(1, Ordering::Relaxed);
+        self.stats.add_connection();
         let channel = self
             .handle
             .channel_open_forwarded_tcpip(&self.address, self.port, &self.address, self.port)
             .await?;
 
-        Ok(Wrapper::new(
-            channel.into_stream(),
-            self.bytes_rx.clone(),
-            self.bytes_tx.clone(),
-        ))
+        Ok(Wrapper::new(channel.into_stream(), self.stats.clone()))
     }
 
     pub async fn set_access(&self, access: TunnelAccess) {
@@ -79,18 +70,6 @@ impl Tunnel {
         self.domain
             .clone()
             .map(|domain| format!("{}.{domain}", self.name))
-    }
-
-    pub fn get_connections(&self) -> usize {
-        self.connection_count.load(Ordering::Relaxed)
-    }
-
-    pub fn get_rx_string(&self) -> String {
-        Unit::new(self.bytes_rx.load(Ordering::Relaxed), "B").to_string()
-    }
-
-    pub fn get_tx_string(&self) -> String {
-        Unit::new(self.bytes_tx.load(Ordering::Relaxed), "B").to_string()
     }
 }
 
@@ -146,9 +125,7 @@ impl Tunnels {
             domain: Some(self.domain.clone()),
             port,
             access: Arc::new(RwLock::new(TunnelAccess::Private(user.into()))),
-            connection_count: Default::default(),
-            bytes_rx: Default::default(),
-            bytes_tx: Default::default(),
+            stats: Default::default(),
         };
 
         if tunnel.name == "localhost" {

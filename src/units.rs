@@ -2,22 +2,13 @@ use std::fmt;
 
 pub struct Unit {
     value: usize,
-    prefix: UnitPrefix,
     unit: String,
 }
 
 impl Unit {
-    pub fn new(mut value: usize, unit: impl Into<String>) -> Self {
-        let mut prefix = UnitPrefix::None;
-
-        while value > 10000 {
-            value /= 1000;
-            prefix = prefix.next();
-        }
-
+    pub fn new(value: usize, unit: impl Into<String>) -> Self {
         Self {
             value,
-            prefix,
             unit: unit.into(),
         }
     }
@@ -25,7 +16,15 @@ impl Unit {
 
 impl fmt::Display for Unit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}{}", self.value, self.prefix, self.unit)
+        let mut value = self.value;
+        let mut prefix = UnitPrefix::None;
+
+        while value > 10000 {
+            value /= 1000;
+            prefix = prefix.next();
+        }
+
+        write!(f, "{} {}{}", value, prefix, self.unit)
     }
 }
 

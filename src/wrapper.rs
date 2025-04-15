@@ -1,35 +1,25 @@
 use std::{
     pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::Arc,
     task::{Context, Poll},
 };
 
 use pin_project_lite::pin_project;
 use russh::{ChannelStream, server::Msg};
 
+use crate::stats::Stats;
+
 pin_project! {
     pub struct Wrapper {
         #[pin]
         inner: ChannelStream<Msg>,
-        bytes_rx: Arc<AtomicUsize>,
-        bytes_tx: Arc<AtomicUsize>
+        stats: Arc<Stats>,
     }
 }
 
 impl Wrapper {
-    pub fn new(
-        inner: ChannelStream<Msg>,
-        bytes_rx: Arc<AtomicUsize>,
-        bytes_tx: Arc<AtomicUsize>,
-    ) -> Self {
-        Self {
-            inner,
-            bytes_rx,
-            bytes_tx,
-        }
+    pub fn new(inner: ChannelStream<Msg>, stats: Arc<Stats>) -> Self {
+        Self { inner, stats }
     }
 }
 
@@ -48,7 +38,7 @@ impl hyper::rt::Read for Wrapper {
             }
         };
 
-        project.bytes_tx.fetch_add(n, Ordering::Relaxed);
+        project.stats.add_tx_bytes(n);
 
         unsafe {
             buf.advance(n);
@@ -66,7 +56,7 @@ impl hyper::rt::Write for Wrapper {
         let project = self.project();
         tokio::io::AsyncWrite::poll_write(project.inner, cx, buf).map(|res| {
             res.inspect(|n| {
-                project.bytes_rx.fetch_add(*n, Ordering::Relaxed);
+                project.stats.add_rx_bytes(*n);
             })
         })
     }
@@ -94,7 +84,7 @@ impl hyper::rt::Write for Wrapper {
         let project = self.project();
         tokio::io::AsyncWrite::poll_write_vectored(project.inner, cx, bufs).map(|res| {
             res.inspect(|n| {
-                project.bytes_rx.fetch_add(*n, Ordering::Relaxed);
+                project.stats.add_rx_bytes(*n);
             })
         })
     }

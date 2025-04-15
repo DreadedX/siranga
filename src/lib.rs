@@ -8,6 +8,7 @@ mod input;
 mod io;
 mod ldap;
 mod server;
+mod stats;
 mod tui;
 mod tunnel;
 mod units;
