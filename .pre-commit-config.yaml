@@ -51,6 +51,16 @@ repos:
         verbose: true
         always_run: true
 
+      - id: udeps
+        name: unused
+        description: Check for unused crates
+        entry: cargo udeps
+        args: ["--workspace"]
+        language: system
+        types: [file]
+        files: (\.rs|Cargo.lock)$
+        pass_filenames: false
+
       - id: test
         name: test
         description: Rust test
