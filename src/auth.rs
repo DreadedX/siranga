@@ -1,5 +1,5 @@
 use hyper::{
-    HeaderMap, StatusCode,
+    HeaderMap, Method, StatusCode,
     header::{self, HeaderName, HeaderValue, ToStrError},
 };
 use reqwest::redirect::Policy;
@@ -30,6 +30,7 @@ pub enum AuthStatus {
 }
 
 const REMOTE_USER: HeaderName = HeaderName::from_static("remote-user");
+const X_FORWARDED_METHOD: HeaderName = HeaderName::from_static("x-forwarded-method");
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
@@ -54,13 +55,14 @@ impl ForwardAuth {
 
     pub async fn check_auth(
         &self,
+        methods: &Method,
         headers: &HeaderMap<HeaderValue>,
     ) -> Result<AuthStatus, AuthError> {
         let client = reqwest::ClientBuilder::new()
             .redirect(Policy::none())
             .build()?;
 
-        let headers = headers
+        let mut headers: HeaderMap = headers
             .clone()
             .into_iter()
             .filter_map(|(key, value)| {
@@ -74,6 +76,11 @@ impl ForwardAuth {
                 }
             })
             .collect();
+
+        headers.insert(
+            X_FORWARDED_METHOD,
+            HeaderValue::from_str(methods.as_str()).expect("method should convert to valid ascii"),
+        );
 
         let resp = client.get(&self.address).headers(headers).send().await?;
 

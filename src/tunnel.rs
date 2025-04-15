@@ -215,7 +215,7 @@ impl Service<Request<Incoming>> for Tunnels {
             };
 
             if !matches!(tunnel.access.read().await.deref(), TunnelAccess::Public) {
-                let user = match s.forward_auth.check_auth(req.headers()).await {
+                let user = match s.forward_auth.check_auth(req.method(), req.headers()).await {
                     Ok(AuthStatus::Authenticated(user)) => user,
                     Ok(AuthStatus::Unauthenticated(location)) => {
                         let resp = Response::builder()
