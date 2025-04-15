@@ -7,25 +7,26 @@ use hyper::{
     header::{self, HOST},
     service::Service,
 };
-use hyper_util::rt::TokioIo;
 use std::{
     collections::{HashMap, hash_map::Entry},
     ops::Deref,
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 use tracing::{debug, error, trace, warn};
 
-use russh::{
-    Channel,
-    server::{Handle, Msg},
-};
+use russh::server::Handle;
 use tokio::sync::RwLock;
 
 use crate::{
     animals::get_animal_name,
     auth::{AuthStatus, ForwardAuth},
     helper::response,
+    units::Unit,
+    wrapper::Wrapper,
 };
 
 pub mod tui;
@@ -45,14 +46,25 @@ pub struct Tunnel {
     domain: Option<String>,
     port: u32,
     access: Arc<RwLock<TunnelAccess>>,
+    connection_count: Arc<AtomicUsize>,
+    bytes_rx: Arc<AtomicUsize>,
+    bytes_tx: Arc<AtomicUsize>,
 }
 
 impl Tunnel {
-    pub async fn open_tunnel(&self) -> Result<Channel<Msg>, russh::Error> {
+    pub async fn open_tunnel(&self) -> Result<Wrapper, russh::Error> {
         trace!(tunnel = self.name, "Opening tunnel");
-        self.handle
+        self.connection_count.fetch_add(1, Ordering::Relaxed);
+        let channel = self
+            .handle
             .channel_open_forwarded_tcpip(&self.address, self.port, &self.address, self.port)
-            .await
+            .await?;
+
+        Ok(Wrapper::new(
+            channel.into_stream(),
+            self.bytes_rx.clone(),
+            self.bytes_tx.clone(),
+        ))
     }
 
     pub async fn set_access(&self, access: TunnelAccess) {
@@ -67,6 +79,18 @@ impl Tunnel {
         self.domain
             .clone()
             .map(|domain| format!("{}.{domain}", self.name))
+    }
+
+    pub fn get_connections(&self) -> usize {
+        self.connection_count.load(Ordering::Relaxed)
+    }
+
+    pub fn get_rx_string(&self) -> String {
+        Unit::new(self.bytes_rx.load(Ordering::Relaxed), "B").to_string()
+    }
+
+    pub fn get_tx_string(&self) -> String {
+        Unit::new(self.bytes_tx.load(Ordering::Relaxed), "B").to_string()
     }
 }
 
@@ -122,6 +146,9 @@ impl Tunnels {
             domain: Some(self.domain.clone()),
             port,
             access: Arc::new(RwLock::new(TunnelAccess::Private(user.into()))),
+            connection_count: Default::default(),
+            bytes_rx: Default::default(),
+            bytes_tx: Default::default(),
         };
 
         if tunnel.name == "localhost" {
@@ -264,8 +291,8 @@ impl Service<Request<Incoming>> for Tunnels {
                 }
             }
 
-            let channel = match tunnel.open_tunnel().await {
-                Ok(channel) => channel,
+            let io = match tunnel.open_tunnel().await {
+                Ok(io) => io,
                 Err(err) => {
                     warn!(tunnel = authority, "Failed to open tunnel: {err}");
                     let resp = response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to open tunnel");
@@ -273,7 +300,6 @@ impl Service<Request<Incoming>> for Tunnels {
                     return Ok(resp);
                 }
             };
-            let io = TokioIo::new(channel.into_stream());
 
             let (mut sender, conn) = Builder::new()
                 .preserve_header_case(true)

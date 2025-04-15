@@ -11,6 +11,9 @@ pub fn header() -> Vec<Span<'static>> {
         "Access".into(),
         "Port".into(),
         "Address".into(),
+        "Conn".into(),
+        "Rx".into(),
+        "Tx".into(),
     ]
 }
 
@@ -31,5 +34,8 @@ pub async fn to_row(tunnel: &Tunnel) -> Vec<Span<'static>> {
         access,
         tunnel.port.to_string().into(),
         address,
+        tunnel.get_connections().to_string().into(),
+        tunnel.get_rx_string().into(),
+        tunnel.get_tx_string().into(),
     ]
 }

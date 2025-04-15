@@ -10,6 +10,8 @@ mod ldap;
 mod server;
 mod tui;
 mod tunnel;
+mod units;
+mod wrapper;
 
 pub use ldap::Ldap;
 pub use server::Server;
