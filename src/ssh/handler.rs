@@ -1,6 +1,6 @@
 use std::{cmp::min, io::Write, iter::once};
 
-use clap::Parser as _;
+use clap::Parser;
 use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect, prelude::CrosstermBackend};
 use russh::{
     ChannelId,
@@ -10,13 +10,32 @@ use russh::{
 use tracing::{debug, trace, warn};
 
 use crate::{
-    Ldap, cli,
-    input::Input,
-    io::TerminalHandle,
-    ldap::LdapError,
-    tui::Renderer,
+    io::{Input, TerminalHandle},
+    ldap::{Ldap, LdapError},
     tunnel::{Registry, Tunnel, TunnelAccess},
 };
+
+/// Quickly create http tunnels for development
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+pub struct Args {
+    /// Make all tunnels public by default instead of private
+    #[arg(long, group = "access")]
+    public: bool,
+
+    #[arg(long, group = "access")]
+    protected: bool,
+}
+
+impl Args {
+    pub fn make_public(&self) -> bool {
+        self.public
+    }
+
+    pub fn make_protected(&self) -> bool {
+        self.protected
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum HandlerError {
@@ -38,7 +57,7 @@ pub struct Handler {
     pty_channel: Option<ChannelId>,
 
     terminal: Option<Terminal<CrosstermBackend<TerminalHandle>>>,
-    renderer: Renderer,
+    renderer: super::Renderer,
     selected: Option<usize>,
 
     rename_buffer: Option<String>,
@@ -315,7 +334,7 @@ impl russh::server::Handler for Handler {
         trace!(?cmd, "exec_request");
 
         let cmd = once("<ssh command> --").chain(cmd.split_whitespace());
-        match cli::Args::try_parse_from(cmd) {
+        match Args::try_parse_from(cmd) {
             Ok(args) => {
                 debug!("{args:?}");
                 if args.make_public() {

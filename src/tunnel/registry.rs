@@ -6,19 +6,19 @@ use std::{
 use tokio::sync::RwLock;
 use tracing::trace;
 
-use crate::{Tunnel, animals::get_animal_name};
+use crate::{helper::get_animal_name, tunnel::Tunnel};
 
 use super::TunnelInner;
 
 #[derive(Debug)]
-pub struct RegistryEntry {
+pub(crate) struct RegistryEntry {
     registry: Registry,
     name: String,
     address: Option<String>,
 }
 
 impl RegistryEntry {
-    pub fn new(registry: Registry) -> Self {
+    pub(crate) fn new(registry: Registry) -> Self {
         Self {
             registry,
             name: Default::default(),
@@ -26,11 +26,11 @@ impl RegistryEntry {
         }
     }
 
-    pub fn get_address(&self) -> Option<&String> {
+    pub(crate) fn get_address(&self) -> Option<&String> {
         self.address.as_ref()
     }
 
-    pub fn get_name(&self) -> &str {
+    pub(crate) fn get_name(&self) -> &str {
         &self.name
     }
 }
@@ -124,7 +124,7 @@ impl Registry {
         self.register(tunnel).await;
     }
 
-    pub async fn get(&self, address: &str) -> Option<TunnelInner> {
+    pub(crate) async fn get(&self, address: &str) -> Option<TunnelInner> {
         self.tunnels.read().await.get(address).cloned()
     }
 }

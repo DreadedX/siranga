@@ -1,10 +1,15 @@
+mod handler;
+mod renderer;
+
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use russh::{MethodKind, keys::PrivateKey, server::Server as _};
 use tokio::net::ToSocketAddrs;
 use tracing::{debug, warn};
 
-use crate::{Ldap, handler::Handler, tunnel::Registry};
+use crate::{ldap::Ldap, tunnel::Registry};
+use handler::Handler;
+use renderer::Renderer;
 
 pub struct Server {
     ldap: Ldap,

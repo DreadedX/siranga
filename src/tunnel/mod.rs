@@ -8,19 +8,19 @@ use tracing::trace;
 use russh::server::Handle;
 use tokio::sync::{RwLock, RwLockReadGuard};
 
-use crate::{stats::Stats, wrapper::Wrapper};
-
 pub use registry::Registry;
 
+use crate::io::{Stats, TrackStats};
+
 #[derive(Debug, Clone)]
-pub enum TunnelAccess {
+pub(crate) enum TunnelAccess {
     Private(String),
     Protected,
     Public,
 }
 
 #[derive(Debug, Clone)]
-pub struct TunnelInner {
+pub(crate) struct TunnelInner {
     handle: Handle,
     internal_address: String,
     port: u32,
@@ -29,7 +29,7 @@ pub struct TunnelInner {
 }
 
 impl TunnelInner {
-    pub async fn open(&self) -> Result<Wrapper, russh::Error> {
+    pub(crate) async fn open(&self) -> Result<TrackStats, russh::Error> {
         trace!("Opening tunnel");
         self.stats.add_connection();
         let channel = self
@@ -42,20 +42,20 @@ impl TunnelInner {
             )
             .await?;
 
-        Ok(Wrapper::new(channel.into_stream(), self.stats.clone()))
+        Ok(TrackStats::new(channel.into_stream(), self.stats.clone()))
     }
 
-    pub async fn is_public(&self) -> bool {
+    pub(crate) async fn is_public(&self) -> bool {
         matches!(*self.access.read().await, TunnelAccess::Public)
     }
 
-    pub async fn get_access(&self) -> RwLockReadGuard<'_, TunnelAccess> {
+    pub(crate) async fn get_access(&self) -> RwLockReadGuard<'_, TunnelAccess> {
         self.access.read().await
     }
 }
 
 #[derive(Debug)]
-pub struct Tunnel {
+pub(crate) struct Tunnel {
     inner: TunnelInner,
 
     registry: Registry,

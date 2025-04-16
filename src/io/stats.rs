@@ -7,23 +7,58 @@ use std::{
 use pin_project_lite::pin_project;
 use russh::{ChannelStream, server::Msg};
 
-use crate::stats::Stats;
+use crate::helper::Unit;
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[derive(Debug, Default)]
+pub struct Stats {
+    connections: AtomicUsize,
+    rx: AtomicUsize,
+    tx: AtomicUsize,
+}
+
+impl Stats {
+    pub fn add_connection(&self) {
+        self.connections.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn add_rx_bytes(&self, n: usize) {
+        self.rx.fetch_add(n, Ordering::Relaxed);
+    }
+
+    pub fn add_tx_bytes(&self, n: usize) {
+        self.tx.fetch_add(n, Ordering::Relaxed);
+    }
+
+    pub fn connections(&self) -> usize {
+        self.connections.load(Ordering::Relaxed)
+    }
+
+    pub fn rx(&self) -> Unit {
+        Unit::new(self.rx.load(Ordering::Relaxed), "B")
+    }
+
+    pub fn tx(&self) -> Unit {
+        Unit::new(self.tx.load(Ordering::Relaxed), "B")
+    }
+}
 
 pin_project! {
-    pub struct Wrapper {
+    pub struct TrackStats {
         #[pin]
         inner: ChannelStream<Msg>,
         stats: Arc<Stats>,
     }
 }
 
-impl Wrapper {
+impl TrackStats {
     pub fn new(inner: ChannelStream<Msg>, stats: Arc<Stats>) -> Self {
         Self { inner, stats }
     }
 }
 
-impl hyper::rt::Read for Wrapper {
+impl hyper::rt::Read for TrackStats {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -47,7 +82,7 @@ impl hyper::rt::Read for Wrapper {
     }
 }
 
-impl hyper::rt::Write for Wrapper {
+impl hyper::rt::Write for TrackStats {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

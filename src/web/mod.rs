@@ -1,4 +1,7 @@
-use crate::Registry;
+mod auth;
+mod response;
+
+use crate::tunnel::Registry;
 use std::{ops::Deref, pin::Pin};
 
 use bytes::Bytes;
@@ -11,11 +14,10 @@ use hyper::{
 };
 use tracing::{debug, error, trace, warn};
 
-use crate::{
-    auth::{AuthStatus, ForwardAuth},
-    helper::response,
-    tunnel::TunnelAccess,
-};
+use crate::tunnel::TunnelAccess;
+use auth::AuthStatus;
+pub use auth::ForwardAuth;
+use response::response;
 
 #[derive(Debug, Clone)]
 pub struct Service {

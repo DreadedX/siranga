@@ -8,7 +8,12 @@ use rand::rngs::OsRng;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use tunnel_rs::{Ldap, Registry, Server, Service, auth::ForwardAuth};
+use tunnel_rs::{
+    ldap::Ldap,
+    ssh::Server,
+    tunnel::Registry,
+    web::{ForwardAuth, Service},
+};
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
