@@ -1,4 +1,5 @@
 #![feature(let_chains)]
+#![feature(iter_intersperse)]
 mod helper;
 mod io;
 pub mod ldap;

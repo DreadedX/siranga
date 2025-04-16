@@ -9,8 +9,8 @@ use crate::io::Stats;
 
 pub struct TunnelRow {
     name: Span<'static>,
-    access: Span<'static>,
     port: Span<'static>,
+    access: Span<'static>,
     address: Span<'static>,
     stats: Arc<Stats>,
 }
@@ -19,8 +19,8 @@ impl From<&TunnelRow> for Vec<Span<'static>> {
     fn from(row: &TunnelRow) -> Self {
         vec![
             row.name.clone(),
-            row.access.clone(),
             row.port.clone(),
+            row.access.clone(),
             row.address.clone(),
             row.stats.connections().to_string().into(),
             row.stats.rx().to_string().into(),
@@ -33,8 +33,8 @@ impl Tunnel {
     pub fn header() -> Vec<Span<'static>> {
         vec![
             "Name".into(),
-            "Access".into(),
             "Port".into(),
+            "Access".into(),
             "Address".into(),
             "Conn".into(),
             "Rx".into(),
@@ -56,8 +56,8 @@ impl Tunnel {
 
         TunnelRow {
             name: tunnel.registry_entry.get_name().to_string().into(),
-            access,
             port: tunnel.inner.port.to_string().into(),
+            access,
             address,
             stats: tunnel.inner.stats.clone(),
         }

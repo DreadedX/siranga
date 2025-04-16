@@ -1,5 +1,6 @@
 use std::cmp::{self, max};
 use std::io::Write as _;
+use std::iter::once;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -35,6 +36,42 @@ struct RendererInner {
     rows: Vec<TunnelRow>,
     input: Option<String>,
     rx: UnboundedReceiver<Message>,
+}
+
+fn compute_widths(rows: &Vec<Vec<Span<'static>>>) -> Vec<u16> {
+    let table_header = Tunnel::header();
+    std::iter::once(&table_header)
+        .chain(rows)
+        .map(|row| row.iter().map(|cell| cell.width() as u16))
+        .fold(vec![0; table_header.len()], |acc, row| {
+            acc.into_iter()
+                .zip(row)
+                .map(|v| cmp::max(v.0, v.1))
+                .collect()
+        })
+}
+
+fn compute_column_skip(
+    widths: &[u16],
+    column_spacing: u16,
+    highlight_symbol: usize,
+    max_width: u16,
+) -> (usize, usize) {
+    for pattern in [(7, 0), (4, 0), (4, 1), (4, 2)] {
+        let width: u16 = widths
+            .iter()
+            .take(pattern.0)
+            .skip(pattern.1)
+            .intersperse(&column_spacing)
+            .chain(once(&(highlight_symbol as u16)))
+            .sum();
+
+        if width <= max_width {
+            return pattern;
+        }
+    }
+
+    (4, 3)
 }
 
 impl RendererInner {
@@ -109,22 +146,6 @@ impl RendererInner {
         (height as u16, Paragraph::new(text).centered().block(block))
     }
 
-    fn compute_widths(&mut self, rows: &Vec<Vec<Span<'static>>>) -> Vec<Constraint> {
-        let table_header = Tunnel::header();
-        std::iter::once(&table_header)
-            .chain(rows)
-            .map(|row| row.iter().map(|cell| cell.width() as u16))
-            .fold(vec![0; table_header.len()], |acc, row| {
-                acc.into_iter()
-                    .zip(row)
-                    .map(|v| cmp::max(v.0, v.1))
-                    .collect()
-            })
-            .into_iter()
-            .map(|c| Constraint::Length(c + 1))
-            .collect()
-    }
-
     fn render(&mut self, frame: &mut Frame) {
         self.render_title(frame, frame.area());
 
@@ -153,15 +174,41 @@ impl RendererInner {
         let highlight_style = Style::default().bold();
         let header_style = Style::default().bold().reversed();
         let row_style = Style::default();
+        let highlight_symbol = Line::from("> ");
+        let column_spacing = 3;
 
-        let r = self
+        let rows = self
             .rows
             .iter()
             .map(From::from)
             .collect::<Vec<Vec<Span<'static>>>>();
 
-        let rows = r.iter().map(|row| {
+        let widths = compute_widths(&rows);
+        let (take, skip) = compute_column_skip(
+            &widths,
+            column_spacing,
+            highlight_symbol.width(),
+            rect.width,
+        );
+
+        let constraints: Vec<_> = widths
+            .into_iter()
+            .take(take)
+            .enumerate()
+            .map(|(index, width)| {
+                if index == 3 {
+                    Constraint::Min(width)
+                } else {
+                    Constraint::Length(width)
+                }
+            })
+            .skip(skip)
+            .collect();
+
+        let rows = rows.iter().map(|row| {
             row.iter()
+                .take(take)
+                .skip(skip)
                 .cloned()
                 .map(Cell::from)
                 .collect::<Row>()
@@ -171,6 +218,8 @@ impl RendererInner {
 
         let header = Tunnel::header()
             .iter()
+            .take(take)
+            .skip(skip)
             .cloned()
             .map(Cell::from)
             .collect::<Row>()
@@ -181,10 +230,10 @@ impl RendererInner {
             .header(header)
             .rows(rows)
             .flex(Flex::Start)
-            .column_spacing(3)
-            .widths(self.compute_widths(&r))
+            .column_spacing(column_spacing)
+            .widths(&constraints)
             .row_highlight_style(highlight_style)
-            .highlight_symbol(Line::from("> "))
+            .highlight_symbol(highlight_symbol)
             .highlight_spacing(HighlightSpacing::Always);
 
         frame.render_stateful_widget(t, rect, &mut self.state);
