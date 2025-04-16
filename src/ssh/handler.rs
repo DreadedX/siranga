@@ -354,7 +354,13 @@ impl russh::server::Handler for Handler {
                     let writer = terminal.backend_mut().writer_mut();
 
                     writer.leave_alternate_screen()?;
-                    writer.write_all(err.to_string().replace('\n', "\n\r").as_bytes())?;
+                    writer.write_all(
+                        err.render()
+                            .ansi()
+                            .to_string()
+                            .replace('\n', "\n\r")
+                            .as_bytes(),
+                    )?;
                     writer.flush()?;
                 }
 
