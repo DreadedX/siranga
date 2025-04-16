@@ -1,5 +1,5 @@
 use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use russh::ChannelId;
 use russh::server::Handle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -34,6 +34,7 @@ impl TerminalHandle {
         };
 
         execute!(terminal_handle, EnterAlternateScreen)?;
+        execute!(terminal_handle, Clear(ClearType::All))?;
 
         Ok(terminal_handle)
     }
