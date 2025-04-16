@@ -8,6 +8,7 @@ use registry::RegistryEntry;
 use russh::server::Handle;
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::trace;
+pub use tui::TunnelRow;
 
 use crate::io::{Stats, TrackStats};
 

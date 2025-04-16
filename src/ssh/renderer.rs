@@ -1,5 +1,6 @@
 use std::cmp::{self, max};
 use std::io::Write as _;
+use std::time::Duration;
 
 use futures::StreamExt;
 use git_version::git_version;
@@ -11,17 +12,18 @@ use ratatui::widgets::{
     Block, BorderType, Cell, Clear, HighlightSpacing, Paragraph, Row, Table, TableState,
 };
 use ratatui::{Frame, Terminal};
+use tokio::select;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tracing::error;
 use unicode_width::UnicodeWidthStr;
 
 use crate::io::TerminalHandle;
-use crate::tunnel::Tunnel;
+use crate::tunnel::{Tunnel, TunnelRow};
 
 enum Message {
     Resize { width: u16, height: u16 },
     Redraw,
-    Rows(Vec<Vec<Span<'static>>>),
+    Rows(Vec<TunnelRow>),
     Select(Option<usize>),
     Rename(Option<String>),
     Help(String),
@@ -30,7 +32,7 @@ enum Message {
 
 struct RendererInner {
     state: TableState,
-    rows: Vec<Vec<Span<'static>>>,
+    rows: Vec<TunnelRow>,
     input: Option<String>,
     rx: UnboundedReceiver<Message>,
 }
@@ -107,6 +109,22 @@ impl RendererInner {
         (height as u16, Paragraph::new(text).centered().block(block))
     }
 
+    fn compute_widths(&mut self, rows: &Vec<Vec<Span<'static>>>) -> Vec<Constraint> {
+        let table_header = Tunnel::header();
+        std::iter::once(&table_header)
+            .chain(rows)
+            .map(|row| row.iter().map(|cell| cell.width() as u16))
+            .fold(vec![0; table_header.len()], |acc, row| {
+                acc.into_iter()
+                    .zip(row)
+                    .map(|v| cmp::max(v.0, v.1))
+                    .collect()
+            })
+            .into_iter()
+            .map(|c| Constraint::Length(c + 1))
+            .collect()
+    }
+
     fn render(&mut self, frame: &mut Frame) {
         self.render_title(frame, frame.area());
 
@@ -122,28 +140,7 @@ impl RendererInner {
 
         self.render_table(frame, chunks[0]);
         frame.render_widget(footer, chunks[1]);
-
-        if let Some(input) = &self.input {
-            self.render_rename(frame, area, input);
-        }
-    }
-
-    fn render_rename(&self, frame: &mut Frame, area: Rect, input: &str) {
-        let vertical = Layout::vertical([Constraint::Length(3)]).flex(Flex::Center);
-        let horizontal = Layout::horizontal([Constraint::Max(max(20, input.width() as u16 + 4))])
-            .flex(Flex::Center);
-        let [area] = vertical.areas(area);
-        let [area] = horizontal.areas(area);
-
-        let title = Line::from("New name").centered();
-        let block = Block::bordered().title(title);
-        let text = Paragraph::new(format!(" {input}")).block(block);
-
-        frame.render_widget(Clear, area);
-
-        frame.render_widget(text, area);
-
-        frame.set_cursor_position(Position::new(area.x + input.width() as u16 + 2, area.y + 1));
+        self.render_rename(frame, area);
     }
 
     fn render_title(&self, frame: &mut Frame, rect: Rect) {
@@ -152,28 +149,18 @@ impl RendererInner {
         frame.render_widget(title, rect);
     }
 
-    fn compute_widths(&mut self) -> Vec<Constraint> {
-        let table_header = Tunnel::header();
-        std::iter::once(&table_header)
-            .chain(&self.rows)
-            .map(|row| row.iter().map(|cell| cell.width() as u16))
-            .fold(vec![0; table_header.len()], |acc, row| {
-                acc.into_iter()
-                    .zip(row)
-                    .map(|v| cmp::max(v.0, v.1))
-                    .collect()
-            })
-            .into_iter()
-            .map(|c| Constraint::Length(c + 1))
-            .collect()
-    }
-
-    pub fn render_table(&mut self, frame: &mut Frame<'_>, rect: Rect) {
+    fn render_table(&mut self, frame: &mut Frame<'_>, rect: Rect) {
         let highlight_style = Style::default().bold();
         let header_style = Style::default().bold().reversed();
         let row_style = Style::default();
 
-        let rows = self.rows.iter().map(|row| {
+        let r = self
+            .rows
+            .iter()
+            .map(From::from)
+            .collect::<Vec<Vec<Span<'static>>>>();
+
+        let rows = r.iter().map(|row| {
             row.iter()
                 .cloned()
                 .map(Cell::from)
@@ -195,7 +182,7 @@ impl RendererInner {
             .rows(rows)
             .flex(Flex::Start)
             .column_spacing(3)
-            .widths(self.compute_widths())
+            .widths(self.compute_widths(&r))
             .row_highlight_style(highlight_style)
             .highlight_symbol(Line::from("> "))
             .highlight_spacing(HighlightSpacing::Always);
@@ -203,35 +190,69 @@ impl RendererInner {
         frame.render_stateful_widget(t, rect, &mut self.state);
     }
 
+    fn render_rename(&self, frame: &mut Frame, area: Rect) {
+        if let Some(input) = &self.input {
+            let vertical = Layout::vertical([Constraint::Length(3)]).flex(Flex::Center);
+            let horizontal =
+                Layout::horizontal([Constraint::Max(max(20, input.width() as u16 + 4))])
+                    .flex(Flex::Center);
+            let [area] = vertical.areas(area);
+            let [area] = horizontal.areas(area);
+
+            let title = Line::from("New name").centered();
+            let block = Block::bordered().title(title);
+            let text = Paragraph::new(format!(" {input}")).block(block);
+
+            frame.render_widget(Clear, area);
+
+            frame.render_widget(text, area);
+
+            frame.set_cursor_position(Position::new(area.x + input.width() as u16 + 2, area.y + 1));
+        }
+    }
+
     pub async fn start(
         &mut self,
         mut terminal: Terminal<CrosstermBackend<TerminalHandle>>,
     ) -> std::io::Result<()> {
-        while let Some(message) = self.rx.recv().await {
-            match message {
-                Message::Resize { width, height } => {
-                    let rect = Rect::new(0, 0, width, height);
+        loop {
+            select! {
+                message = self.rx.recv() => {
+                    let Some(message) = message else {
+                        break;
+                    };
 
-                    terminal.resize(rect)?;
+                    match message {
+                        Message::Resize { width, height } => {
+                            let rect = Rect::new(0, 0, width, height);
+
+                            terminal.resize(rect)?;
+                        }
+                        Message::Select(selected) => self.state.select(selected),
+                        Message::Rename(input) => self.input = input,
+                        Message::Rows(rows) => self.rows = rows,
+                        Message::Redraw => {
+                            terminal.draw(|frame| {
+                                self.render(frame);
+                            })?;
+                        }
+                        Message::Help(message) => {
+                            let writer = terminal.backend_mut().writer_mut();
+                            writer.leave_alternate_screen()?;
+                            writer.write_all(message.as_bytes())?;
+                            writer.flush()?;
+
+                            break;
+                        }
+                        Message::Close => {
+                            break;
+                        }
+                    }
                 }
-                Message::Select(selected) => self.state.select(selected),
-                Message::Rename(input) => self.input = input,
-                Message::Rows(rows) => self.rows = rows,
-                Message::Redraw => {
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
                     terminal.draw(|frame| {
                         self.render(frame);
                     })?;
-                }
-                Message::Help(message) => {
-                    let writer = terminal.backend_mut().writer_mut();
-                    writer.leave_alternate_screen()?;
-                    writer.write_all(message.as_bytes())?;
-                    writer.flush()?;
-
-                    break;
-                }
-                Message::Close => {
-                    break;
                 }
             }
         }
