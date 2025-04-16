@@ -1,6 +1,7 @@
 use std::cmp::{self, max};
 
 use futures::StreamExt;
+use git_version::git_version;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
 use ratatui::style::{Style, Stylize as _};
@@ -131,12 +132,7 @@ impl Renderer {
     }
 
     pub fn render_title(&self, frame: &mut Frame, rect: Rect) {
-        let title = format!(
-            "{} ({})",
-            std::env!("CARGO_PKG_NAME"),
-            std::env!("CARGO_PKG_VERSION")
-        )
-        .bold();
+        let title = format!("{} ({})", std::env!("CARGO_PKG_NAME"), git_version!()).bold();
         let title = Line::from(title).centered();
         frame.render_widget(title, rect);
     }

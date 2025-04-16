@@ -3,6 +3,7 @@ use std::io::Write;
 use std::iter::once;
 
 use clap::Parser;
+use git_version::git_version;
 use ratatui::layout::Rect;
 use ratatui::prelude::CrosstermBackend;
 use ratatui::{Terminal, TerminalOptions, Viewport};
@@ -17,7 +18,7 @@ use crate::tunnel::{Registry, Tunnel, TunnelAccess};
 
 /// Quickly create http tunnels for development
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(version = git_version!(), about, long_about = None)]
 pub struct Args {
     /// Make all tunnels public by default instead of private
     #[arg(long, group = "access")]
