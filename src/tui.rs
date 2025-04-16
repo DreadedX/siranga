@@ -12,7 +12,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::tunnel::{self, Tunnel};
+use crate::tunnel::Tunnel;
 
 #[derive(Default)]
 pub struct Renderer {
@@ -28,7 +28,7 @@ impl Renderer {
     // NOTE: This needs to be a separate function as the render functions can not be async
     pub async fn update(&mut self, tunnels: &[Tunnel], index: Option<usize>) {
         self.table_rows = futures::stream::iter(tunnels)
-            .then(tunnel::tui::to_row)
+            .then(Tunnel::to_row)
             .collect::<Vec<_>>()
             .await;
 
@@ -144,7 +144,7 @@ impl Renderer {
     }
 
     fn compute_widths(&mut self) -> Vec<Constraint> {
-        let table_header = tunnel::tui::header();
+        let table_header = Tunnel::header();
         std::iter::once(&table_header)
             .chain(&self.table_rows)
             .map(|row| row.iter().map(|cell| cell.width() as u16))
@@ -173,7 +173,7 @@ impl Renderer {
                 .height(1)
         });
 
-        let header = tunnel::tui::header()
+        let header = Tunnel::header()
             .iter()
             .cloned()
             .map(Cell::from)
