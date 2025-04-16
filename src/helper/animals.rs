@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
-use rand::{rngs::OsRng, seq::SliceRandom};
+use rand::rngs::OsRng;
+use rand::seq::SliceRandom;
 
 pub fn get_animal_name() -> &'static str {
     static ANIMALS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {

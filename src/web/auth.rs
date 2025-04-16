@@ -1,7 +1,5 @@
-use hyper::{
-    HeaderMap, Method, StatusCode,
-    header::{self, HeaderName, HeaderValue, ToStrError},
-};
+use hyper::header::{self, HeaderName, HeaderValue, ToStrError};
+use hyper::{HeaderMap, Method, StatusCode};
 use reqwest::redirect::Policy;
 use tracing::{debug, error};
 

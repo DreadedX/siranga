@@ -1,5 +1,6 @@
 use bytes::Bytes;
-use http_body_util::{BodyExt as _, Full, combinators::BoxBody};
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt as _, Full};
 use hyper::{Response, StatusCode};
 
 pub fn response(

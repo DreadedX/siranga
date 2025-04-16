@@ -1,4 +1,5 @@
-use std::{net::SocketAddr, path::Path};
+use std::net::SocketAddr;
+use std::path::Path;
 
 use color_eyre::eyre::Context;
 use dotenvy::dotenv;
@@ -7,13 +8,13 @@ use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use tunnel_rs::{
-    ldap::Ldap,
-    ssh::Server,
-    tunnel::Registry,
-    web::{ForwardAuth, Service},
-};
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tunnel_rs::ldap::Ldap;
+use tunnel_rs::ssh::Server;
+use tunnel_rs::tunnel::Registry;
+use tunnel_rs::web::{ForwardAuth, Service};
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {

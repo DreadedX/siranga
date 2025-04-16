@@ -1,14 +1,13 @@
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    sync::Arc,
-};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::sync::Arc;
 
 use tokio::sync::RwLock;
 use tracing::trace;
 
-use crate::{helper::get_animal_name, tunnel::Tunnel};
-
 use super::TunnelInner;
+use crate::helper::get_animal_name;
+use crate::tunnel::Tunnel;
 
 #[derive(Debug)]
 pub(crate) struct RegistryEntry {

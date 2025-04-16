@@ -1,14 +1,12 @@
 use std::cmp::{self, max};
 
 use futures::StreamExt;
-use ratatui::{
-    Frame,
-    layout::{Constraint, Flex, Layout, Position, Rect},
-    style::{Style, Stylize as _},
-    text::{Line, Span, Text},
-    widgets::{
-        Block, BorderType, Cell, Clear, HighlightSpacing, Paragraph, Row, Table, TableState,
-    },
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
+use ratatui::style::{Style, Stylize as _};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{
+    Block, BorderType, Cell, Clear, HighlightSpacing, Paragraph, Row, Table, TableState,
 };
 use unicode_width::UnicodeWidthStr;
 

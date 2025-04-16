@@ -1,14 +1,13 @@
 mod registry;
 mod tui;
 
-use registry::RegistryEntry;
 use std::sync::Arc;
-use tracing::trace;
-
-use russh::server::Handle;
-use tokio::sync::{RwLock, RwLockReadGuard};
 
 pub use registry::Registry;
+use registry::RegistryEntry;
+use russh::server::Handle;
+use tokio::sync::{RwLock, RwLockReadGuard};
+use tracing::trace;
 
 use crate::io::{Stats, TrackStats};
 

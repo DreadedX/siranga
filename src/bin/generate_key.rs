@@ -2,7 +2,8 @@ use clap::Parser;
 use clio::Output;
 use color_eyre::eyre::Context;
 use rand::rngs::OsRng;
-use russh::keys::ssh_key::{LineEnding, sec1::der::Writer};
+use russh::keys::ssh_key::LineEnding;
+use russh::keys::ssh_key::sec1::der::Writer;
 
 /// Simple program to generate a new private key in the correct format
 #[derive(Debug, Parser)]

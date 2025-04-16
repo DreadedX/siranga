@@ -1,8 +1,7 @@
-use crossterm::{
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
-};
-use russh::{ChannelId, server::Handle};
+use crossterm::execute;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
+use russh::ChannelId;
+use russh::server::Handle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tracing::error;
 

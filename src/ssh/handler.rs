@@ -1,19 +1,19 @@
-use std::{cmp::min, io::Write, iter::once};
+use std::cmp::min;
+use std::io::Write;
+use std::iter::once;
 
 use clap::Parser;
-use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect, prelude::CrosstermBackend};
-use russh::{
-    ChannelId,
-    keys::ssh_key::PublicKey,
-    server::{Auth, Msg, Session},
-};
+use ratatui::layout::Rect;
+use ratatui::prelude::CrosstermBackend;
+use ratatui::{Terminal, TerminalOptions, Viewport};
+use russh::ChannelId;
+use russh::keys::ssh_key::PublicKey;
+use russh::server::{Auth, Msg, Session};
 use tracing::{debug, trace, warn};
 
-use crate::{
-    io::{Input, TerminalHandle},
-    ldap::{Ldap, LdapError},
-    tunnel::{Registry, Tunnel, TunnelAccess},
-};
+use crate::io::{Input, TerminalHandle};
+use crate::ldap::{Ldap, LdapError};
+use crate::tunnel::{Registry, Tunnel, TunnelAccess};
 
 /// Quickly create http tunnels for development
 #[derive(Parser, Debug)]

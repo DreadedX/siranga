@@ -1,23 +1,22 @@
 mod auth;
 mod response;
 
-use crate::tunnel::Registry;
-use std::{ops::Deref, pin::Pin};
+use std::ops::Deref;
+use std::pin::Pin;
 
-use bytes::Bytes;
-use http_body_util::{BodyExt as _, Empty, combinators::BoxBody};
-use hyper::{
-    Request, Response, StatusCode,
-    body::Incoming,
-    client::conn::http1::Builder,
-    header::{self, HOST},
-};
-use tracing::{debug, error, trace, warn};
-
-use crate::tunnel::TunnelAccess;
 use auth::AuthStatus;
 pub use auth::ForwardAuth;
+use bytes::Bytes;
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt as _, Empty};
+use hyper::body::Incoming;
+use hyper::client::conn::http1::Builder;
+use hyper::header::{self, HOST};
+use hyper::{Request, Response, StatusCode};
 use response::response;
+use tracing::{debug, error, trace, warn};
+
+use crate::tunnel::{Registry, TunnelAccess};
 
 #[derive(Debug, Clone)]
 pub struct Service {

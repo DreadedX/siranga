@@ -1,15 +1,13 @@
-use std::{
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Context, Poll};
 
 use pin_project_lite::pin_project;
-use russh::{ChannelStream, server::Msg};
+use russh::ChannelStream;
+use russh::server::Msg;
 
 use crate::helper::Unit;
-
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug, Default)]
 pub struct Stats {
