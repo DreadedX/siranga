@@ -1,14 +1,15 @@
+mod registry;
+mod tui;
+
 use registry::RegistryEntry;
 use std::sync::Arc;
 use tracing::trace;
 
 use russh::server::Handle;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockReadGuard};
 
 use crate::{stats::Stats, wrapper::Wrapper};
 
-mod registry;
-pub mod tui;
 pub use registry::Registry;
 
 #[derive(Debug, Clone)]
@@ -42,6 +43,14 @@ impl TunnelInner {
             .await?;
 
         Ok(Wrapper::new(channel.into_stream(), self.stats.clone()))
+    }
+
+    pub async fn is_public(&self) -> bool {
+        matches!(*self.access.read().await, TunnelAccess::Public)
+    }
+
+    pub async fn get_access(&self) -> RwLockReadGuard<'_, TunnelAccess> {
+        self.access.read().await
     }
 }
 
@@ -80,10 +89,6 @@ impl Tunnel {
 
     pub async fn set_access(&self, access: TunnelAccess) {
         *self.inner.access.write().await = access;
-    }
-
-    pub async fn is_public(&self) -> bool {
-        matches!(*self.inner.access.read().await, TunnelAccess::Public)
     }
 
     pub fn get_address(&self) -> Option<&String> {

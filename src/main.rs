@@ -8,7 +8,7 @@ use rand::rngs::OsRng;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use tunnel_rs::{Ldap, Registry, Server, auth::ForwardAuth};
+use tunnel_rs::{Ldap, Registry, Server, Service, auth::ForwardAuth};
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -43,14 +43,14 @@ async fn main() -> color_eyre::Result<()> {
     let authz_address = std::env::var("AUTHZ_ENDPOINT").wrap_err("AUTHZ_ENDPOINT is not set")?;
 
     let ldap = Ldap::start_from_env().await?;
-
-    let auth = ForwardAuth::new(authz_address);
-    let tunnels = Registry::new(domain, auth);
-    let mut ssh = Server::new(ldap, tunnels.clone());
+    let registry = Registry::new(domain);
+    let mut ssh = Server::new(ldap, registry.clone());
     let addr = SocketAddr::from(([0, 0, 0, 0], ssh_port));
     tokio::spawn(async move { ssh.run(key, addr).await });
     info!("SSH is available on {addr}");
 
+    let auth = ForwardAuth::new(authz_address);
+    let service = Service::new(registry, auth);
     let addr = SocketAddr::from(([0, 0, 0, 0], http_port));
     let listener = TcpListener::bind(addr).await?;
     info!("HTTP is available on {addr}");
@@ -60,12 +60,12 @@ async fn main() -> color_eyre::Result<()> {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
 
-        let tunnels = tunnels.clone();
+        let service = service.clone();
         tokio::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .preserve_header_case(true)
                 .title_case_headers(true)
-                .serve_connection(io, tunnels)
+                .serve_connection(io, service)
                 .with_upgrades()
                 .await
             {

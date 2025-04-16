@@ -53,7 +53,7 @@ impl ForwardAuth {
         }
     }
 
-    pub async fn check_auth(
+    pub async fn check(
         &self,
         methods: &Method,
         headers: &HeaderMap<HeaderValue>,

@@ -12,9 +12,11 @@ mod stats;
 mod tui;
 mod tunnel;
 mod units;
+mod web;
 mod wrapper;
 
 pub use ldap::Ldap;
 pub use server::Server;
 pub use tunnel::Registry;
 pub use tunnel::Tunnel;
+pub use web::Service;
