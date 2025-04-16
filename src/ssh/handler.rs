@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::io::Write;
 use std::iter::once;
 
 use clap::Parser;
@@ -57,11 +56,9 @@ pub struct Handler {
     user: Option<String>,
     pty_channel: Option<ChannelId>,
 
-    terminal: Option<Terminal<CrosstermBackend<TerminalHandle>>>,
     renderer: super::Renderer,
     selected: Option<usize>,
-
-    rename_buffer: Option<String>,
+    rename_input: Option<String>,
 }
 
 impl Handler {
@@ -72,10 +69,10 @@ impl Handler {
             tunnels: Default::default(),
             user: None,
             pty_channel: None,
-            terminal: None,
+
             renderer: Default::default(),
             selected: None,
-            rename_buffer: None,
+            rename_input: None,
         }
     }
 
@@ -83,46 +80,6 @@ impl Handler {
         for tunnel in &self.tunnels {
             tunnel.set_access(access.clone()).await;
         }
-    }
-
-    async fn resize(&mut self, width: u32, height: u32) -> std::io::Result<()> {
-        if let Some(terminal) = &mut self.terminal {
-            let rect = Rect {
-                x: 0,
-                y: 0,
-                width: width as u16,
-                height: height as u16,
-            };
-
-            terminal.resize(rect)?;
-            self.redraw().await?;
-        } else {
-            warn!("Resize called without valid terminal");
-        }
-
-        Ok(())
-    }
-
-    pub fn close(&mut self) -> std::io::Result<()> {
-        if let Some(terminal) = self.terminal.take() {
-            drop(terminal);
-        }
-
-        Ok(())
-    }
-
-    async fn redraw(&mut self) -> std::io::Result<()> {
-        if let Some(terminal) = &mut self.terminal {
-            trace!("redraw");
-            self.renderer.update(&self.tunnels, self.selected).await;
-            terminal.draw(|frame| {
-                self.renderer.render(frame, &self.rename_buffer);
-            })?;
-        } else {
-            warn!("Redraw called without valid terminal");
-        }
-
-        Ok(())
     }
 
     async fn set_access_selection(&mut self, access: TunnelAccess) {
@@ -135,17 +92,17 @@ impl Handler {
         }
     }
 
-    async fn handle_input(&mut self, input: Input) -> std::io::Result<bool> {
-        if self.rename_buffer.is_some() {
+    async fn handle_input(&mut self, input: Input) -> std::io::Result<()> {
+        if self.rename_input.is_some() {
             match input {
                 Input::Char(c) if c.is_alphanumeric() => {
-                    self.rename_buffer
+                    self.rename_input
                         .as_mut()
                         .expect("input buffer should be some")
                         .push(c.to_ascii_lowercase());
                 }
                 Input::Backspace => {
-                    self.rename_buffer
+                    self.rename_input
                         .as_mut()
                         .expect("input buffer should be some")
                         .pop();
@@ -154,85 +111,100 @@ impl Handler {
                     debug!("Input accepted");
                     if let Some(selected) = self.selected
                         && let Some(tunnel) = self.tunnels.get_mut(selected)
-                        && let Some(buffer) = self.rename_buffer.take()
+                        && let Some(buffer) = self.rename_input.take()
                     {
                         tunnel.set_name(buffer).await;
+                        self.renderer.rows(&self.tunnels).await;
                     } else {
                         warn!("Trying to rename invalid tunnel");
                     }
                 }
                 Input::Esc => {
                     debug!("Input rejected");
-                    self.rename_buffer = None;
+                    self.rename_input = None;
                 }
-                _ => return Ok(false),
+                _ => return Ok(()),
             }
-            debug!("Input: {:?}", self.rename_buffer);
+            debug!("Input: {:?}", self.rename_input);
+            self.renderer.rename(&self.rename_input);
         } else {
             match input {
                 Input::Char('q') => {
-                    self.close()?;
-                    return Ok(false);
+                    self.renderer.close();
                 }
-                Input::Char('k') | Input::Up => self.previous_row(),
-                Input::Char('j') | Input::Down => self.next_row(),
-                Input::Esc => self.selected = None,
+                Input::Char('k') | Input::Up => {
+                    self.previous_row();
+                    self.renderer.select(self.selected);
+                }
+                Input::Char('j') | Input::Down => {
+                    self.next_row();
+                    self.renderer.select(self.selected);
+                }
+                Input::Esc => {
+                    self.selected = None;
+                    self.renderer.select(self.selected);
+                }
                 Input::Char('P') => {
                     self.set_access_selection(TunnelAccess::Public).await;
+                    self.renderer.rows(&self.tunnels).await;
                 }
                 Input::Char('p') => {
                     if let Some(user) = self.user.clone() {
                         self.set_access_selection(TunnelAccess::Private(user)).await;
+                        self.renderer.rows(&self.tunnels).await;
                     } else {
                         warn!("User not set");
                     }
                 }
                 Input::Char('R') => {
                     let Some(selected) = self.selected else {
-                        return Ok(false);
+                        return Ok(());
                     };
 
                     let Some(tunnel) = self.tunnels.get_mut(selected) else {
                         warn!("Trying to retry invalid tunnel");
-                        return Ok(false);
+                        return Ok(());
                     };
 
                     tunnel.retry().await;
+                    self.renderer.rows(&self.tunnels).await;
                 }
                 Input::Char('r') => {
                     if self.selected.is_some() {
                         trace!("Renaming tunnel");
-                        self.rename_buffer = Some(String::new());
+                        self.rename_input = Some(String::new());
+                        self.renderer.rename(&self.rename_input);
                     }
                 }
                 Input::Delete => {
                     let Some(selected) = self.selected else {
-                        return Ok(false);
+                        return Ok(());
                     };
 
                     if selected >= self.tunnels.len() {
                         warn!("Trying to delete tunnel out of bounds");
-                        return Ok(false);
+                        return Ok(());
                     }
 
                     self.tunnels.remove(selected);
+                    self.renderer.rows(&self.tunnels).await;
 
                     if self.tunnels.is_empty() {
                         self.selected = None;
                     } else {
                         self.selected = Some(min(self.tunnels.len() - 1, selected));
                     }
+                    self.renderer.select(self.selected);
                 }
                 Input::CtrlP => {
                     self.set_access_selection(TunnelAccess::Protected).await;
+                    self.renderer.rows(&self.tunnels).await;
                 }
-                _ => {
-                    return Ok(false);
-                }
+                _ => {}
             };
         }
 
-        Ok(true)
+        Ok(())
     }
 
     fn next_row(&mut self) {
@@ -316,9 +288,7 @@ impl russh::server::Handler for Handler {
             let input: Input = data.into();
             trace!(?input, "input");
 
-            if self.handle_input(input).await? {
-                self.redraw().await?;
-            }
+            self.handle_input(input).await?;
         }
 
         Ok(())
@@ -341,31 +311,17 @@ impl russh::server::Handler for Handler {
                 if args.make_public() {
                     trace!("Making tunnels public");
                     self.set_access_all(TunnelAccess::Public).await;
-                    self.redraw().await?;
+                    self.renderer.rows(&self.tunnels).await;
                 } else if args.make_protected() {
                     trace!("Making tunnels protected");
                     self.set_access_all(TunnelAccess::Protected).await;
-                    self.redraw().await?;
+                    self.renderer.rows(&self.tunnels).await;
                 }
             }
             Err(err) => {
                 trace!("Sending help message and disconnecting");
 
-                if let Some(terminal) = &mut self.terminal {
-                    let writer = terminal.backend_mut().writer_mut();
-
-                    writer.leave_alternate_screen()?;
-                    writer.write_all(
-                        err.render()
-                            .ansi()
-                            .to_string()
-                            .replace('\n', "\n\r")
-                            .as_bytes(),
-                    )?;
-                    writer.flush()?;
-                }
-
-                self.close()?;
+                self.renderer.help(err.render().ansi().to_string());
             }
         }
 
@@ -411,7 +367,7 @@ impl russh::server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         trace!(col_width, row_height, "window_change_request");
 
-        self.resize(col_width, row_height).await?;
+        self.renderer.resize(col_width as u16, row_height as u16);
 
         Ok(())
     }
@@ -440,8 +396,10 @@ impl russh::server::Handler for Handler {
         let options = TerminalOptions {
             viewport: Viewport::Fixed(rect),
         };
-        self.terminal = Some(Terminal::with_options(backend, options)?);
-        self.redraw().await?;
+        let terminal = Terminal::with_options(backend, options)?;
+        self.renderer.start(terminal);
+
+        self.renderer.rows(&self.tunnels).await;
 
         self.pty_channel = Some(channel);
 
