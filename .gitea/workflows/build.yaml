@@ -55,21 +55,9 @@ jobs:
             type=semver,pattern=v{{major}}.{{minor}}
             type=semver,pattern=v{{major}}
 
-      - name: Build and export to docker
+      - name: Build container
         id: build
         uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          annotations: ${{ steps.meta.outputs.annotations }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-        env:
-          SOURCE_DATE_EPOCH: ${{ env.TIMESTAMP }}
-
-      - name: Push container
-        uses: docker/build-push-action@v6
-        id: push
         with:
           context: .
           push: true
@@ -77,12 +65,14 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
           annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
         env:
           SOURCE_DATE_EPOCH: ${{ env.TIMESTAMP }}
 
       - name: Kustomize manifests
         run: |
-          ./kustomize build ./manifests | sed "s/\${DIGEST}/${{ steps.push.outputs.digest }}/" > ./manifests.yaml
+          ./kustomize build ./manifests | sed "s/\${DIGEST}/${{ steps.build.outputs.digest }}/" > ./manifests.yaml
 
       - name: Push manifests
         run: |
