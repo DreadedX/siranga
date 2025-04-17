@@ -4,9 +4,8 @@ metadata:
   name: http
 spec:
   ports:
-    - name: "3000"
+    - name: http
       port: 3000
-      targetPort: 3000
   selector:
     app: siranga
 ---
@@ -19,7 +18,7 @@ metadata:
 spec:
   type: LoadBalancer
   ports:
-    - name: "2222"
+    - name: ssh
       port: 22
       targetPort: 2222
   selector:
