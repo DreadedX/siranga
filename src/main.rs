@@ -45,10 +45,10 @@ async fn main() -> color_eyre::Result<()> {
     };
 
     let http_port = std::env::var("HTTP_PORT")
-        .map(|port| port.parse())
+        .map(|port| port.parse().wrap_err_with(|| format!("HTTP_PORT={port}")))
         .unwrap_or(Ok(3000))?;
     let ssh_port = std::env::var("SSH_PORT")
-        .map(|port| port.parse())
+        .map(|port| port.parse().wrap_err_with(|| format!("SSH_PORT={port}")))
         .unwrap_or(Ok(2222))?;
 
     let domain =
