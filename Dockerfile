@@ -18,5 +18,5 @@ ENV RUSTC_BOOTSTRAP=1
 RUN cargo auditable build --release
 
 FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
-COPY --from=builder /app/target/release/tunnel_rs /tunnel_rs
-CMD ["/tunnel_rs"]
+COPY --from=builder /app/target/release/siranga /siranga
+CMD ["/siranga"]

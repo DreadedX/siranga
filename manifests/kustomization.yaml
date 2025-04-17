@@ -1,10 +1,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: tunnel
+namespace: siranga
 resources:
   - ./namespace.yaml
   - ./service-user.yaml
-  - ./secret-tunnel-key.yaml
+  - ./secret-siranga-key.yaml
   - ./deployment.yaml
   - ./service.yaml
   - ./certificate.yaml

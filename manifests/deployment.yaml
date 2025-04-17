@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tunnel
+  name: siranga
   labels:
-    app: tunnel
-    app.kubernetes.io/name: tunnel
+    app: siranga
+    app.kubernetes.io/name: siranga
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: tunnel
+      app: siranga
   template:
     metadata:
       labels:
-        app: tunnel
+        app: siranga
       annotations:
-        kubectl.kubernetes.io/default-container: tunnel
+        kubectl.kubernetes.io/default-container: siranga
     spec:
       containers:
-        - name: tunnel
-          image: git.huizinga.dev/dreaded_x/tunnel_rs@${DIGEST}
+        - name: siranga
+          image: git.huizinga.dev/dreaded_x/siranga@${DIGEST}
           imagePullPolicy: IfNotPresent
           resources:
             limits:
@@ -40,7 +40,7 @@ spec:
               mountPath: "/secrets/key"
           env:
             - name: RUST_LOG
-              value: info,tunnel_rs=debug
+              value: info,siranga=debug
             - name: TUNNEL_DOMAIN
               value: tunnel.${domain}
             - name: AUTHZ_ENDPOINT
@@ -50,7 +50,7 @@ spec:
             - name: LDAP_BASE
               value: ou=people,dc=huizinga,dc=dev
             - name: LDAP_BIND_DN
-              value: uid=tunnel.tunnel,ou=people,dc=huizinga,dc=dev
+              value: uid=siranga.siranga,ou=people,dc=huizinga,dc=dev
             - name: LDAP_PASSWORD_FILE
               value: /secrets/credentials/password
             - name: PRIVATE_KEY_FILE
@@ -58,8 +58,8 @@ spec:
       volumes:
         - name: credentials
           secret:
-            secretName: tunnel-lldap-credentials
+            secretName: siranga-lldap-credentials
 
         - name: key
           secret:
-            secretName: tunnel-key
+            secretName: siranga-key

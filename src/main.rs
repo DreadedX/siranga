@@ -7,15 +7,15 @@ use git_version::git_version;
 use hyper::server::conn::http1::{self};
 use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
+use siranga::ldap::Ldap;
+use siranga::ssh::Server;
+use siranga::tunnel::Registry;
+use siranga::web::{ForwardAuth, Service};
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tunnel_rs::ldap::Ldap;
-use tunnel_rs::ssh::Server;
-use tunnel_rs::tunnel::Registry;
-use tunnel_rs::web::{ForwardAuth, Service};
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {

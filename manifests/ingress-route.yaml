@@ -9,7 +9,7 @@ spec:
     - match: HostRegexp(`^.+\.tunnel\.${domain//./\\.}$`)
       kind: Rule
       services:
-        - name: tunnel
+        - name: http
           port: 3000
   tls:
     secretName: tunnel-tls

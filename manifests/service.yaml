@@ -1,19 +1,19 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: tunnel
+  name: http
 spec:
   ports:
     - name: "3000"
       port: 3000
       targetPort: 3000
   selector:
-    app: tunnel
+    app: siranga
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: tunnel-ssh
+  name: ssh
   annotations:
     external-dns.alpha.kubernetes.io/hostname: tunnel.svc.${domain}
 spec:
@@ -23,4 +23,4 @@ spec:
       port: 22
       targetPort: 2222
   selector:
-    app: tunnel
+    app: siranga
