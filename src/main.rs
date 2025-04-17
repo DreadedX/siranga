@@ -3,6 +3,7 @@ use std::path::Path;
 
 use color_eyre::eyre::Context;
 use dotenvy::dotenv;
+use git_version::git_version;
 use hyper::server::conn::http1::{self};
 use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
@@ -28,6 +29,12 @@ async fn main() -> color_eyre::Result<()> {
         .with(logger)
         .with(env_filter)
         .init();
+
+    info!(
+        "Starting {} ({})",
+        std::env!("CARGO_PKG_NAME"),
+        git_version!(),
+    );
 
     let key = if let Ok(path) = std::env::var("PRIVATE_KEY_FILE") {
         russh::keys::PrivateKey::read_openssh_file(Path::new(&path))
