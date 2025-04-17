@@ -24,11 +24,19 @@ async fn main() -> color_eyre::Result<()> {
 
     let env_filter = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("info"))?;
 
-    let logger = tracing_subscriber::fmt::layer().compact();
-    tracing_subscriber::Registry::default()
-        .with(logger)
-        .with(env_filter)
-        .init();
+    if std::env::var("CARGO").is_ok() {
+        let logger = tracing_subscriber::fmt::layer().compact();
+        tracing_subscriber::Registry::default()
+            .with(logger)
+            .with(env_filter)
+            .init();
+    } else {
+        let logger = tracing_subscriber::fmt::layer().json();
+        tracing_subscriber::Registry::default()
+            .with(logger)
+            .with(env_filter)
+            .init();
+    }
 
     info!(
         "Starting {} ({})",
