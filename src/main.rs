@@ -3,10 +3,10 @@ use std::path::Path;
 
 use color_eyre::eyre::Context;
 use dotenvy::dotenv;
-use git_version::git_version;
 use hyper::server::conn::http1::{self};
 use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
+use siranga::VERSION;
 use siranga::ldap::Ldap;
 use siranga::ssh::Server;
 use siranga::tunnel::Registry;
@@ -38,11 +38,7 @@ async fn main() -> color_eyre::Result<()> {
             .init();
     }
 
-    info!(
-        "Starting {} ({})",
-        std::env!("CARGO_PKG_NAME"),
-        git_version!(),
-    );
+    info!(version = VERSION, "Starting",);
 
     let key = if let Ok(path) = std::env::var("PRIVATE_KEY_FILE") {
         russh::keys::PrivateKey::read_openssh_file(Path::new(&path))

@@ -4,7 +4,6 @@ use std::iter::once;
 use std::time::Duration;
 
 use futures::StreamExt;
-use git_version::git_version;
 use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
 use ratatui::prelude::CrosstermBackend;
 use ratatui::style::{Style, Stylize as _};
@@ -18,6 +17,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tracing::error;
 use unicode_width::UnicodeWidthStr;
 
+use crate::VERSION;
 use crate::io::TerminalHandle;
 use crate::tunnel::{Tunnel, TunnelRow};
 
@@ -165,7 +165,7 @@ impl RendererInner {
     }
 
     fn render_title(&self, frame: &mut Frame, rect: Rect) {
-        let title = format!("{} ({})", std::env!("CARGO_PKG_NAME"), git_version!()).bold();
+        let title = format!("{} ({})", std::env!("CARGO_PKG_NAME"), VERSION).bold();
         let title = Line::from(title).centered();
         frame.render_widget(title, rect);
     }
