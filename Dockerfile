@@ -16,8 +16,6 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 ARG RELEASE_VERSION
 ENV RELEASE_VERSION=${RELEASE_VERSION}
-# HACK: Enable the use of features on stable
-ENV RUSTC_BOOTSTRAP=1
 RUN cargo auditable build --release
 
 FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
