@@ -29,7 +29,7 @@ This deployment runs in a cluster with [Authelia](https://github.com/authelia/au
 A tunnel can be opened using the following command:
 
 ```
-ssh <username>@<host> [-p <ssh port>] -t -R <local port>:localhost:<local port>
+ssh <username>@<host> [-p <ssh port>] -tq -R <local port>:localhost:<local port>
 ```
 
 This will open a new tunnel with a randomly generated name, you can specify a name for the tunnel by instead using `-R <name>:<local port>:localhost:<local port>`.
@@ -44,10 +44,11 @@ To make connecting slightly easier I recommend adding the following to `~/.ssh/c
 
 ```
 Host tunnel
-	HostName <host>
+    HostName <host>
     Port <ssh port>
-	User <username>
-	RequestTTY yes
+    User <username>
+    RequestTTY yes
+    LogLevel QUIET
 ```
 
 You can now connect with `ssh tunnel -R <local port>:localhost:<local port>`.
