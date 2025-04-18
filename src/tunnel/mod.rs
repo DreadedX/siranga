@@ -40,7 +40,12 @@ impl TunnelInner {
                 &self.internal_address,
                 self.port,
             )
-            .await?;
+            .await
+            .inspect_err(|_| {
+                self.stats.set_failed(true);
+            })?;
+
+        self.stats.set_failed(false);
 
         Ok(TrackStats::new(channel.into_stream(), self.stats.clone()))
     }

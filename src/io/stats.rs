@@ -1,6 +1,6 @@
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
 use pin_project_lite::pin_project;
@@ -14,6 +14,7 @@ pub struct Stats {
     connections: AtomicUsize,
     rx: AtomicUsize,
     tx: AtomicUsize,
+    failed: AtomicBool,
 }
 
 impl Stats {
@@ -31,6 +32,14 @@ impl Stats {
 
     pub fn connections(&self) -> usize {
         self.connections.load(Ordering::Relaxed)
+    }
+
+    pub fn failed(&self) -> bool {
+        self.failed.load(Ordering::Relaxed)
+    }
+
+    pub fn set_failed(&self, failed: bool) {
+        self.failed.store(failed, Ordering::Relaxed);
     }
 
     pub fn rx(&self) -> Unit {

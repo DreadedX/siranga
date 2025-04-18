@@ -17,9 +17,15 @@ pub struct TunnelRow {
 
 impl From<&TunnelRow> for Vec<Span<'static>> {
     fn from(row: &TunnelRow) -> Self {
+        let port = if row.stats.failed() {
+            row.port.clone().red()
+        } else {
+            row.port.clone()
+        };
+
         vec![
             row.name.clone(),
-            row.port.clone(),
+            port,
             row.access.clone(),
             row.address.clone(),
             row.stats.connections().to_string().into(),
