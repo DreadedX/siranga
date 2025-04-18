@@ -79,11 +79,11 @@ jobs:
 
       - name: Push manifests
         run: |
-          flux push artifact oci://$OCI_REPO/manifests:${{ gitea.head_ref || gitea.ref_name }} \
+          flux push artifact oci://${{ env.OCI_REPO }}/manifests:${{ gitea.head_ref || gitea.ref_name }} \
             --path="./manifests.yaml" \
             --source="$(git config --get remote.origin.url)" \
             --revision="$(git rev-parse HEAD)" \
             $(echo "${{ steps.meta.outputs.labels }}" | sed -e 's/^/-a /')
 
-          flux tag artifact oci://$OCI_REPO/manifests:${{ gitea.head_ref || gitea.ref_name }} \
+          flux tag artifact oci://${{ env.OCI_REPO }}/manifests:${{ gitea.head_ref || gitea.ref_name }} \
             $(echo "${{ steps.meta.outputs.tags }}" | sed -e 's/^.*:/--tag /')
