@@ -1,0 +1,7 @@
+apiVersion: authelia.huizinga.dev/v1
+kind: AccessControlRule
+metadata:
+  name: tunnel
+spec:
+  domain: "*.tunnel.${domain}"
+  policy: one_factor

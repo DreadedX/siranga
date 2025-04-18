@@ -9,4 +9,4 @@ resources:
   - ./service.yaml
   - ./certificate.yaml
   - ./ingress-route.yaml
-  - ./config-map-authelia-acl.yaml
+  - ./access-control-rule.yaml
