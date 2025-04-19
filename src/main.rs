@@ -20,10 +20,27 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+#[cfg(unix)]
+async fn sigterm() {
+    use tokio::signal::unix::SignalKind;
+
+    let mut sigterm =
+        tokio::signal::unix::signal(SignalKind::terminate()).expect("should be able to initialize");
+    sigterm.recv().await;
+}
+
+#[cfg(not(unix))]
+async fn sigterm() {
+    std::future::pending::<()>().await;
+}
+
 async fn shutdown_task(token: CancellationToken) {
     select! {
         _ = tokio::signal::ctrl_c() => {
             debug!("Received SIGINT");
+        }
+        _ = sigterm() => {
+            debug!("Received SIGTERM");
         }
         _ = token.cancelled() => {
             debug!("Application called for graceful shutdown");
