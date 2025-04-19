@@ -3,7 +3,7 @@ use russh::keys::PublicKey;
 use tokio::select;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, error};
 
 #[derive(Debug, Clone)]
 pub struct Ldap {
@@ -51,9 +51,10 @@ impl Ldap {
             select! {
                 res = conn.drive() => {
                     if let Err(err) = res {
-                        warn!("LDAP connection error: {}", err);
+                        error!("LDAP connection error: {}", err);
                     } else {
-                        debug!("LDAP drive has stopped, this should not happen?");
+                        error!("LDAP connection lost");
+                        token.cancel();
                     }
                 }
                 _ = token.cancelled() => {

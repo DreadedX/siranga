@@ -15,15 +15,20 @@ use siranga::web::{ForwardAuth, Service};
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 async fn shutdown_task(token: CancellationToken) {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("Failed to listen for ctrl-c event");
+    select! {
+        _ = tokio::signal::ctrl_c() => {
+            debug!("Received SIGINT");
+        }
+        _ = token.cancelled() => {
+            debug!("Application called for graceful shutdown");
+        }
+    }
     info!("Starting graceful shutdown");
     token.cancel();
     tokio::time::sleep(Duration::from_secs(5)).await;
