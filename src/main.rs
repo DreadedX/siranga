@@ -1,10 +1,11 @@
+#![feature(future_join)]
+use std::future::join;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::time::Duration;
 
 use color_eyre::eyre::Context;
 use dotenvy::dotenv;
-use hyper::server::conn::http1::{self};
-use hyper_util::rt::TokioIo;
 use rand::rngs::OsRng;
 use siranga::VERSION;
 use siranga::ldap::Ldap;
@@ -12,10 +13,21 @@ use siranga::ssh::Server;
 use siranga::tunnel::Registry;
 use siranga::web::{ForwardAuth, Service};
 use tokio::net::TcpListener;
+use tokio::select;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+
+async fn shutdown_task(token: CancellationToken) {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for ctrl-c event");
+    info!("Starting graceful shutdown");
+    token.cancel();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+}
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -59,35 +71,32 @@ async fn main() -> color_eyre::Result<()> {
         std::env::var("TUNNEL_DOMAIN").unwrap_or_else(|_| format!("localhost:{http_port}"));
     let authz_address = std::env::var("AUTHZ_ENDPOINT").wrap_err("AUTHZ_ENDPOINT is not set")?;
 
-    let ldap = Ldap::start_from_env().await?;
     let registry = Registry::new(domain);
-    let mut ssh = Server::new(ldap, registry.clone());
-    let addr = SocketAddr::from(([0, 0, 0, 0], ssh_port));
-    tokio::spawn(async move { ssh.run(key, addr).await });
-    info!("SSH is available on {addr}");
+
+    let token = CancellationToken::new();
+
+    let (ldap, ldap_handle) = Ldap::start_from_env(token.clone()).await?;
+
+    let ssh = Server::new(ldap, registry.clone(), token.clone());
+    let ssh_addr = SocketAddr::from(([0, 0, 0, 0], ssh_port));
+    let ssh_task = ssh.run(key, ssh_addr);
+    info!("SSH is available on {ssh_addr}");
 
     let auth = ForwardAuth::new(authz_address);
     let service = Service::new(registry, auth);
-    let addr = SocketAddr::from(([0, 0, 0, 0], http_port));
-    let listener = TcpListener::bind(addr).await?;
-    info!("HTTP is available on {addr}");
+    let http_addr = SocketAddr::from(([0, 0, 0, 0], http_port));
+    let http_listener = TcpListener::bind(http_addr).await?;
+    let http_task = service.serve(http_listener, token.clone());
+    info!("HTTP is available on {http_addr}");
 
-    // TODO: Graceful shutdown
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
+    select! {
+        _ = join!(ldap_handle, ssh_task, http_task) => {
+            info!("Shutdown gracefully");
+        }
+        _ = shutdown_task(token.clone()) => {
+            error!("Failed to shut down gracefully");
+        }
+    };
 
-        let service = service.clone();
-        tokio::spawn(async move {
-            if let Err(err) = http1::Builder::new()
-                .preserve_header_case(true)
-                .title_case_headers(true)
-                .serve_connection(io, service)
-                .with_upgrades()
-                .await
-            {
-                error!("Failed to serve connection: {err:?}");
-            }
-        });
-    }
+    Ok(())
 }

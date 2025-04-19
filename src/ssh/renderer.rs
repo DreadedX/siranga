@@ -14,7 +14,8 @@ use ratatui::widgets::{
 use ratatui::{Frame, Terminal};
 use tokio::select;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use tracing::error;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error};
 use unicode_width::UnicodeWidthStr;
 
 use crate::VERSION;
@@ -36,6 +37,8 @@ struct RendererInner {
     rows: Vec<TunnelRow>,
     input: Option<String>,
     rx: UnboundedReceiver<Message>,
+
+    token: CancellationToken,
 }
 
 fn compute_widths(rows: &Vec<Vec<Span<'static>>>) -> Vec<u16> {
@@ -75,12 +78,13 @@ fn compute_column_skip(
 }
 
 impl RendererInner {
-    fn new(rx: UnboundedReceiver<Message>) -> Self {
+    fn new(rx: UnboundedReceiver<Message>, token: CancellationToken) -> Self {
         Self {
             state: Default::default(),
             rows: Default::default(),
             input: None,
             rx,
+            token,
         }
     }
 
@@ -303,6 +307,10 @@ impl RendererInner {
                         self.render(frame);
                     })?;
                 }
+                _ = self.token.cancelled() => {
+                    debug!("Graceful shutdown");
+                    break;
+                }
             }
         }
 
@@ -310,16 +318,24 @@ impl RendererInner {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Renderer {
     tx: Option<UnboundedSender<Message>>,
+    token: CancellationToken,
 }
 
 impl Renderer {
+    pub fn new(token: CancellationToken) -> Self {
+        Self {
+            tx: Default::default(),
+            token,
+        }
+    }
+
     pub fn start(&mut self, terminal: Terminal<CrosstermBackend<TerminalHandle>>) {
         let (tx, rx) = unbounded_channel();
 
-        let mut inner = RendererInner::new(rx);
+        let mut inner = RendererInner::new(rx, self.token.clone());
 
         tokio::spawn(async move {
             if let Err(err) = inner.start(terminal).await {

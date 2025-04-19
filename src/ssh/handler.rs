@@ -8,8 +8,10 @@ use ratatui::{Terminal, TerminalOptions, Viewport};
 use russh::ChannelId;
 use russh::keys::ssh_key::PublicKey;
 use russh::server::{Auth, Msg, Session};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace, warn};
 
+use super::renderer::Renderer;
 use crate::VERSION;
 use crate::io::{Input, TerminalHandle};
 use crate::ldap::{Ldap, LdapError};
@@ -62,7 +64,7 @@ pub struct Handler {
 }
 
 impl Handler {
-    pub fn new(ldap: Ldap, registry: Registry) -> Self {
+    pub fn new(ldap: Ldap, registry: Registry, token: CancellationToken) -> Self {
         Self {
             ldap,
             registry,
@@ -70,7 +72,7 @@ impl Handler {
             user: None,
             pty_channel: None,
 
-            renderer: Default::default(),
+            renderer: Renderer::new(token),
             selected: None,
             rename_input: None,
         }

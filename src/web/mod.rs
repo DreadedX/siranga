@@ -1,6 +1,7 @@
 mod auth;
 mod response;
 
+use std::future::join;
 use std::ops::Deref;
 use std::pin::Pin;
 
@@ -12,8 +13,14 @@ use http_body_util::{BodyExt as _, Empty};
 use hyper::body::Incoming;
 use hyper::client::conn::http1::Builder;
 use hyper::header::{self, HOST};
+use hyper::server::conn::http1;
 use hyper::{Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
+use hyper_util::server::graceful::GracefulShutdown;
 use response::response;
+use tokio::net::TcpListener;
+use tokio::select;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace, warn};
 
 use crate::tunnel::{Registry, TunnelAccess};
@@ -27,6 +34,49 @@ pub struct Service {
 impl Service {
     pub fn new(registry: Registry, auth: ForwardAuth) -> Self {
         Self { registry, auth }
+    }
+
+    pub async fn handle_connection(
+        &self,
+        listener: &TcpListener,
+        graceful_shutdown: &GracefulShutdown,
+    ) -> std::io::Result<()> {
+        let (stream, _) = listener.accept().await?;
+
+        let io = TokioIo::new(stream);
+        let connection = http1::Builder::new()
+            .preserve_header_case(true)
+            .title_case_headers(true)
+            .serve_connection(io, self.clone());
+
+        let connection = graceful_shutdown.watch(connection);
+
+        tokio::spawn(async move {
+            if let Err(err) = connection.await {
+                error!("Failed to serve connection: {err:?}");
+            }
+        });
+
+        Ok(())
+    }
+
+    pub async fn serve(self, listener: TcpListener, token: CancellationToken) {
+        let graceful_shutdown = GracefulShutdown::new();
+        loop {
+            select! {
+                res = self.handle_connection(&listener, &graceful_shutdown) => {
+                    if let Err(err) = res {
+                        error!("Failed to accept connection: {err}")
+                    }
+                }
+                _ = token.cancelled() => {
+                    debug!("Graceful shutdown");
+                    break;
+                }
+            }
+        }
+
+        graceful_shutdown.shutdown().await;
     }
 }
 
@@ -135,14 +185,15 @@ impl hyper::service::Service<Request<Incoming>> for Service {
                 .handshake(io)
                 .await?;
 
-            tokio::spawn(async move {
+            let conn = async {
                 if let Err(err) = conn.await {
                     warn!(runnel = authority, "Connection failed: {err}");
                 }
-            });
+            };
 
-            let resp = sender.send_request(req).await?;
-            Ok(resp.map(|b| b.boxed()))
+            let (resp, _) = join!(sender.send_request(req), conn).await;
+
+            Ok(resp?.map(|b| b.boxed()))
         })
     }
 }

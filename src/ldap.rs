@@ -1,5 +1,9 @@
 use ldap3::{LdapConnAsync, SearchEntry};
 use russh::keys::PublicKey;
+use tokio::select;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct Ldap {
@@ -20,7 +24,9 @@ pub enum LdapError {
 }
 
 impl Ldap {
-    pub async fn start_from_env() -> Result<Ldap, LdapError> {
+    pub async fn start_from_env(
+        token: CancellationToken,
+    ) -> Result<(Ldap, JoinHandle<()>), LdapError> {
         let address = std::env::var("LDAP_ADDRESS")
             .map_err(|_| LdapError::MissingEnvironmentVariable("LDAP_ADDRESS"))?;
         let base = std::env::var("LDAP_BASE")
@@ -41,11 +47,24 @@ impl Ldap {
         )?;
 
         let (conn, mut ldap) = LdapConnAsync::new(&address).await?;
-        ldap3::drive!(conn);
+        let handle = tokio::spawn(async move {
+            select! {
+                res = conn.drive() => {
+                    if let Err(err) = res {
+                        warn!("LDAP connection error: {}", err);
+                    } else {
+                        debug!("LDAP drive has stopped, this should not happen?");
+                    }
+                }
+                _ = token.cancelled() => {
+                    debug!("Graceful shutdown");
+                }
+            }
+        });
 
         ldap.simple_bind(&bind_dn, &password).await?.success()?;
 
-        Ok(Self { base, ldap })
+        Ok((Self { base, ldap }, handle))
     }
 
     pub async fn get_ssh_keys(
