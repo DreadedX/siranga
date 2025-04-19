@@ -31,7 +31,10 @@ async fn shutdown_task(token: CancellationToken) {
     }
     info!("Starting graceful shutdown");
     token.cancel();
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    select! {
+        _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+        _ = tokio::signal::ctrl_c() => {}
+    }
 }
 
 #[tokio::main]
