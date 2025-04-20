@@ -330,6 +330,26 @@ impl russh::server::Handler for Handler {
         Ok(session.channel_success(channel)?)
     }
 
+    async fn channel_close(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        if let Some(pty_channel) = self.pty_channel
+            && pty_channel == channel
+        {
+            debug!("Pty channel closed");
+
+            session.disconnect(
+                russh::Disconnect::ByApplication,
+                "Remaining active connections have been closed",
+                "EN",
+            )?;
+        }
+
+        Ok(())
+    }
+
     async fn tcpip_forward(
         &mut self,
         address: &str,
