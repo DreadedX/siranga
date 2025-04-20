@@ -119,7 +119,7 @@ async fn main() -> color_eyre::Result<()> {
             info!("Shutdown gracefully");
         }
         _ = shutdown_task(token.clone()) => {
-            error!("Failed to shut down gracefully");
+            error!("Failed to shutdown gracefully");
         }
     };
 
