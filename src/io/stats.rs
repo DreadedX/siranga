@@ -19,15 +19,15 @@ pub struct Stats {
 
 impl Stats {
     pub fn add_connection(&self) {
-        self.connections.store(1, Ordering::Relaxed);
+        self.connections.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn add_rx_bytes(&self, n: usize) {
-        self.rx.store(n, Ordering::Relaxed);
+        self.rx.fetch_add(n, Ordering::Relaxed);
     }
 
     pub fn add_tx_bytes(&self, n: usize) {
-        self.tx.store(n, Ordering::Relaxed);
+        self.tx.fetch_add(n, Ordering::Relaxed);
     }
 
     pub fn connections(&self) -> usize {
