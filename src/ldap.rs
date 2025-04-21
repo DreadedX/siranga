@@ -1,4 +1,5 @@
 use ldap3::{LdapConnAsync, SearchEntry};
+use leon::{Template, vals};
 use russh::keys::PublicKey;
 use tokio::select;
 use tokio::task::JoinHandle;
@@ -9,6 +10,7 @@ use tracing::{debug, error};
 pub struct Ldap {
     base: String,
     ldap: ldap3::Ldap,
+    search_filter: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -21,6 +23,10 @@ pub enum LdapError {
     MissingEnvironmentVariable(&'static str),
     #[error("Could not read password file: {0}")]
     CouldNotReadPasswordFile(#[from] std::io::Error),
+    #[error("Failed to parse search filter: {0}")]
+    FailedToParseSearchFilter(#[from] leon::ParseError),
+    #[error("Failed to render search filter: {0}")]
+    FailedToRenderSearchFilter(#[from] leon::RenderError),
 }
 
 impl Ldap {
@@ -33,6 +39,8 @@ impl Ldap {
             .map_err(|_| LdapError::MissingEnvironmentVariable("LDAP_BASE"))?;
         let bind_dn = std::env::var("LDAP_BIND_DN")
             .map_err(|_| LdapError::MissingEnvironmentVariable("LDAP_BIND_DN"))?;
+        let search_filter = std::env::var("LDAP_SEARCH_FILTER")
+            .map_err(|_| LdapError::MissingEnvironmentVariable("LDAP_SEARCH_FILTER"))?;
 
         let password = std::env::var("LDAP_PASSWORD_FILE").map_or_else(
             |_| {
@@ -65,20 +73,39 @@ impl Ldap {
 
         ldap.simple_bind(&bind_dn, &password).await?.success()?;
 
-        Ok((Self { base, ldap }, handle))
+        Ok((
+            Self {
+                base,
+                ldap,
+                search_filter,
+            },
+            handle,
+        ))
     }
 
     pub async fn get_ssh_keys(
         &mut self,
         user: impl AsRef<str>,
     ) -> Result<Vec<PublicKey>, LdapError> {
+        let search_filter = Template::parse(&self.search_filter)?;
+
+        let search_filter = search_filter.render(&&vals(|key| {
+            if key == "username" {
+                Some(user.as_ref().to_string().into())
+            } else {
+                None
+            }
+        }))?;
+
+        debug!("search_filter = {search_filter}");
+
         Ok(self
             .ldap
             .search(
                 &self.base,
                 ldap3::Scope::Subtree,
                 // TODO: Make this not hardcoded
-                &format!("(uid={})", user.as_ref()),
+                &search_filter,
                 vec!["sshkeys"],
             )
             .await?

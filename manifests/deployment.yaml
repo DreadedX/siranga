@@ -55,6 +55,8 @@ spec:
               value: ldap://lldap.lldap.svc.cluster.local:3890
             - name: LDAP_BASE
               value: ou=people,dc=huizinga,dc=dev
+            - name: LDAP_SEARCH_FILTER
+              value: (uid={username})
             - name: LDAP_BIND_DN
               valueFrom:
                 secretKeyRef:
