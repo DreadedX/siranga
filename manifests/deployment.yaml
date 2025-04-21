@@ -56,7 +56,10 @@ spec:
             - name: LDAP_BASE
               value: ou=people,dc=huizinga,dc=dev
             - name: LDAP_BIND_DN
-              value: uid=siranga.siranga,ou=people,dc=huizinga,dc=dev
+              valueFrom:
+                secretKeyRef:
+                  name: siranga-lldap-credentials
+                  key: bind_dn
             - name: LDAP_PASSWORD_FILE
               value: /secrets/credentials/password
             - name: PRIVATE_KEY_FILE
