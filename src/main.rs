@@ -4,6 +4,8 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
+use axum::routing::get;
+use axum::{Json, Router};
 use color_eyre::eyre::Context;
 use dotenvy::dotenv;
 use rand::rngs::OsRng;
@@ -54,6 +56,10 @@ async fn shutdown_task(token: CancellationToken) {
     }
 }
 
+async fn axum_graceful_shutdown(token: CancellationToken) {
+    token.cancelled().await;
+}
+
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
@@ -85,12 +91,18 @@ async fn main() -> color_eyre::Result<()> {
         russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)?
     };
 
-    let http_port = std::env::var("HTTP_PORT")
-        .map(|port| port.parse().wrap_err_with(|| format!("HTTP_PORT={port}")))
-        .unwrap_or(Ok(3000))?;
     let ssh_port = std::env::var("SSH_PORT")
         .map(|port| port.parse().wrap_err_with(|| format!("SSH_PORT={port}")))
         .unwrap_or(Ok(2222))?;
+    let http_port = std::env::var("HTTP_PORT")
+        .map(|port| port.parse().wrap_err_with(|| format!("HTTP_PORT={port}")))
+        .unwrap_or(Ok(3000))?;
+    let metrics_port = std::env::var("METRICS_PORT")
+        .map(|port| {
+            port.parse()
+                .wrap_err_with(|| format!("METRICS_PORT={port}"))
+        })
+        .unwrap_or(Ok(4000))?;
 
     let domain =
         std::env::var("TUNNEL_DOMAIN").unwrap_or_else(|_| format!("localhost:{http_port}"));
@@ -114,8 +126,15 @@ async fn main() -> color_eyre::Result<()> {
     let http_task = service.serve(http_listener, token.clone());
     info!("HTTP is available on {http_addr}");
 
+    let metrics_app = Router::new().route("/health", get(async || Json("healthy")));
+    let metrics_addr = SocketAddr::from(([0, 0, 0, 0], metrics_port));
+    let metrics_listener = TcpListener::bind(metrics_addr).await?;
+    let metrics = axum::serve(metrics_listener, metrics_app)
+        .with_graceful_shutdown(axum_graceful_shutdown(token.clone()));
+    info!("Metrics are available on {http_addr}");
+
     select! {
-        _ = join!(ldap_handle, ssh_task, http_task) => {
+        _ = join!(ldap_handle, ssh_task, http_task, metrics.into_future()) => {
             info!("Shutdown gracefully");
         }
         _ = shutdown_task(token.clone()) => {
