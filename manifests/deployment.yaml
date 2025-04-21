@@ -31,8 +31,10 @@ spec:
               cpu: 50m
               memory: 100Mi
           ports:
-            - containerPort: 3000
-            - containerPort: 2222
+            - name: ssh
+              containerPort: 2222
+            - name: http
+              containerPort: 3000
           volumeMounts:
             - name: credentials
               readOnly: true
