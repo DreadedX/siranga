@@ -44,8 +44,9 @@ impl Ldap {
 
         let password = std::env::var("LDAP_PASSWORD_FILE").map_or_else(
             |_| {
-                std::env::var("LDAP_PASSWORD")
-                    .map_err(|_| LdapError::MissingEnvironmentVariable("LDAP_PASSWORD"))
+                std::env::var("LDAP_PASSWORD").map_err(|_| {
+                    LdapError::MissingEnvironmentVariable("LDAP_PASSWORD or LDAP_PASSWORD_FILE")
+                })
             },
             |path| {
                 std::fs::read_to_string(path)
